@@ -1461,6 +1461,25 @@ past `0xffffffff` without replacing the active session, and runtime cleanup.
 Windows Ghidra P0 does not admit m68k, so this is not a Windows lane. The lane
 has been run on macOS; Linux has not been exercised.
 
+`npm run verify:ghidra:rx` needs no assembler: its 56-byte little-endian Renesas
+RX fixture is source-owned annotated hex in the verifier. File offset 0 maps at
+`base_address` `0xfff00000`; leading data (a word table and an ASCII marker)
+places the entry at `0xfff00020`. The `rx62t:LE:32:default` language is a
+community SLEIGH module, not part of stock Ghidra. When the installation catalog
+that REA admits lacks it, the lane prints
+`skipped: rx62t:LE:32:default (not in the Ghidra installation catalog that REA admits)`
+and succeeds; refusal of a missing module is covered by source tests. With the
+module installed in Ghidra 12.1.4 and a full JDK on Linux or macOS, it verifies
+the BinaryLoader import with the bound language and `default` compiler
+specification, canonical base and entry, real CLI/stdio MCP load-image parity,
+the reported community-module limitation, exact bytes at the data, marker, and
+tail addresses, the `entry` procedure and its leaf, the `bsr.w` call reference,
+decompilation of the leaf's constant by address and file offset, rejection of an
+entry outside the image and of a mapping past `0xffffffff` without replacing the
+active session, and runtime cleanup. It has been run with Ghidra 12.1.4 and
+Temurin JDK 21 on Linux x64; macOS has not been exercised. Windows Ghidra P0
+does not admit rx.
+
 `npm run verify:ghidra:raw` uses a generated ARM little-endian headerless image
 through the compiled CLI and stdio MCP server. With the same Ghidra/JDK
 prerequisites, it checks preparation and bridge startup, verified load mappings,
