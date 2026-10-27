@@ -5,7 +5,23 @@ export interface GhidraRawBinaryLanguage {
   readonly languageId: string;
   readonly compilerSpecId: "default" | "gcc";
   readonly defaultAddressSpace: "ram" | "RAM";
+  /**
+   * Present when the language is not shipped with Ghidra. Admission requires
+   * it in the selected installation's language catalog before analysis.
+   */
+  readonly communityModule?: GhidraCommunityProcessorModule;
 }
+
+/** A caller-installed processor module whose decoding REA has not verified. */
+export interface GhidraCommunityProcessorModule {
+  readonly name: string;
+  readonly source: string;
+}
+
+const RX_PROCESSOR_MODULE: GhidraCommunityProcessorModule = {
+  name: "RX",
+  source: "github.com/stefan00lpf/rx-proc-ghidra",
+};
 
 /**
  * Map caller-visible CPU families to generic Ghidra languages with a
@@ -13,6 +29,7 @@ export interface GhidraRawBinaryLanguage {
  * not evidence of the target's original compiler. Each family has one fixed
  * byte order: m68k is big-endian and the others are little-endian. Big-endian
  * ARM, Thumb-only, Cortex-M, and other processor variants are out of scope.
+ * rx binds a community processor module rather than a stock language.
  */
 export const ghidraRawBinaryLanguage = (
   architecture: RawBinaryAdmission["architecture"],
@@ -51,8 +68,14 @@ export const ghidraRawBinaryLanguage = (
         defaultAddressSpace: "ram",
       };
     case "rx":
-      // Ghidra target support does not admit rx until a language is mapped.
-      throw new Error("No Ghidra language is mapped for raw rx");
+      // The community RX module declares one RXv1/RXv2 language, named for
+      // the RX62T, with a single `ram` space and a default compiler spec.
+      return {
+        languageId: "rx62t:LE:32:default",
+        compilerSpecId: "default",
+        defaultAddressSpace: "ram",
+        communityModule: RX_PROCESSOR_MODULE,
+      };
     case "arm64":
       return {
         languageId: "AARCH64:LE:64:v8A",
@@ -61,3 +84,13 @@ export const ghidraRawBinaryLanguage = (
       };
   }
 };
+
+/** Evidence limitations owed by a language that Ghidra does not ship. */
+export const ghidraRawBinaryLanguageLimitations = (
+  language: GhidraRawBinaryLanguage,
+): readonly string[] =>
+  language.communityModule === undefined
+    ? []
+    : [
+        `${language.languageId} comes from the community ${language.communityModule.name} processor module (${language.communityModule.source}) installed in the selected Ghidra; it is not shipped with Ghidra. REA has not established its instruction decoding, p-code, or decompilation fidelity, so instructions, references, and pseudocode from this language are unverified.`,
+      ];

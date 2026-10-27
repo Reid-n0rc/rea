@@ -2,7 +2,10 @@ import { describe, expect, it } from "vitest";
 
 import { attestGhidraRawBinaryLoadImage } from "./GhidraLoadImageValues.js";
 import { fixtureRawBinaryLoadImage } from "./GhidraRawBinaryLoadImage.fixture.js";
-import { ghidraRawBinaryLanguage } from "./GhidraRawBinaryLanguage.js";
+import {
+  ghidraRawBinaryLanguage,
+  ghidraRawBinaryLanguageLimitations,
+} from "./GhidraRawBinaryLanguage.js";
 
 describe("raw-binary Ghidra language binding", () => {
   it("maps the big-endian m68k family to the default 68000 language", () => {
@@ -11,6 +14,36 @@ describe("raw-binary Ghidra language binding", () => {
       compilerSpecId: "default",
       defaultAddressSpace: "ram",
     });
+  });
+  it("maps rx to the community rx62t language and owes its limitation", () => {
+    const language = ghidraRawBinaryLanguage("rx");
+    expect(language).toEqual({
+      languageId: "rx62t:LE:32:default",
+      compilerSpecId: "default",
+      defaultAddressSpace: "ram",
+      communityModule: {
+        name: "RX",
+        source: "github.com/stefan00lpf/rx-proc-ghidra",
+      },
+    });
+    expect(ghidraRawBinaryLanguageLimitations(language)).toEqual([
+      expect.stringMatching(
+        /^rx62t:LE:32:default comes from the community RX processor module .* not shipped with Ghidra\. REA has not established its instruction decoding/u,
+      ),
+    ]);
+    for (const architecture of [
+      "x86",
+      "x86_64",
+      "arm",
+      "arm64",
+      "6502",
+      "m68k",
+    ] as const)
+      expect(
+        ghidraRawBinaryLanguageLimitations(
+          ghidraRawBinaryLanguage(architecture),
+        ),
+      ).toEqual([]);
   });
   it("maps the four admitted families to little-endian generic languages", () => {
     expect(ghidraRawBinaryLanguage("x86")).toEqual({
@@ -281,5 +314,46 @@ describe("raw-binary independent load-image checks", () => {
         f.observation,
       ).ok,
     ).toBe(false);
+  });
+});
+
+describe("raw-binary community language attestation", () => {
+  it("verifies an odd-entry rx load image and reports the community language limitation", () => {
+    const f = fixtureRawBinaryLoadImage();
+    const target = {
+      ...f.target,
+      architecture: "rx" as const,
+      availableArchitectures: ["rx" as const],
+      entryPoint: "0x1001",
+      entryPointSource: "0x1001",
+    };
+    f.observation.language_id = "rx62t:LE:32:default";
+    f.observation.compiler_spec_id = "default";
+    f.observation.default_address_space = "ram";
+    f.observation.entry_points = [target.entryPoint];
+    const mapping = f.observation.mappings[0];
+    if (mapping === undefined)
+      throw new Error("Missing source mapping fixture");
+    mapping.start = target.entryPoint;
+    mapping.end = "0x1004";
+    mapping.address_space = "ram";
+    const attested = attestGhidraRawBinaryLoadImage(
+      f.snapshot,
+      target,
+      f.observation,
+    );
+    if (!attested.ok) throw new Error(attested.error);
+    expect(attested.value).toMatchObject({
+      status: "verified",
+      architecture: "rx",
+      language_id: "rx62t:LE:32:default",
+      compiler_spec_id: "default",
+      base_address: "0x1001",
+    });
+    expect(attested.value.limitations).toEqual(
+      expect.arrayContaining([
+        ...ghidraRawBinaryLanguageLimitations(ghidraRawBinaryLanguage("rx")),
+      ]),
+    );
   });
 });

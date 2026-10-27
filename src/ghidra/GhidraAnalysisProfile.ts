@@ -33,6 +33,11 @@ import {
 } from "./GhidraPowerPcProfile.js";
 import { ghidraRawBinaryLanguage } from "./GhidraRawBinaryLanguage.js";
 import {
+  admitGhidraCommunityLanguage,
+  readGhidraLanguageCatalog,
+} from "./GhidraLanguageCatalog.js";
+import { ghidraFileFailure } from "./GhidraFileArtifacts.js";
+import {
   GHIDRA_GAMECUBE_DOL_LANGUAGE,
   ghidraDolLanguage,
   ghidraDolLanguageUnsupportedReason,
@@ -225,6 +230,30 @@ export const resolveGhidraAnalysisProfile = async (
         ),
       );
     const language = ghidraRawBinaryLanguage(target.architecture);
+    const { communityModule } = language;
+    if (communityModule !== undefined) {
+      // A language Ghidra does not ship must be installed before import.
+      let catalog: Awaited<ReturnType<typeof readGhidraLanguageCatalog>>;
+      try {
+        catalog = await readGhidraLanguageCatalog(
+          installation.installDir,
+          resources,
+          signal,
+        );
+      } catch (cause: unknown) {
+        return err(
+          ghidraFileFailure(cause, "resolve_analysis_profile", {
+            language_id: language.languageId,
+          }),
+        );
+      }
+      const refused = admitGhidraCommunityLanguage(
+        { ...language, communityModule },
+        catalog,
+        installation,
+      );
+      if (refused !== null) return err(refused);
+    }
     return Promise.resolve(
       ok({
         profile: createProfile({
@@ -234,6 +263,9 @@ export const resolveGhidraAnalysisProfile = async (
           language_id: language.languageId,
           compiler_spec_id: language.compilerSpecId,
           language_selection: "caller-supplied-v1",
+          ...(communityModule === undefined
+            ? {}
+            : { language_catalog: "installed-community-module-v1" }),
           entry_point: target.entryPoint,
           entry_seed: "external-entry-and-function-before-analysis-v1",
           ...analyzerParameters,

@@ -7,8 +7,10 @@ import type { ArtifactResourceScope } from "../artifacts/ArtifactResourceScope.j
 import { withArtifactRegularFile } from "../artifacts/ArtifactFileOperation.js";
 import type { GhidraLanguageOverride } from "../config/ghidraLanguageOverride.js";
 import { ConfigurationError } from "../domain/configurationErrors.js";
+import { AnalysisCapabilityUnavailableError } from "../domain/analysisErrorCore.js";
 import { RegularFileOperationCancelled } from "../filesystem/RegularFile.js";
 import { readBoundedFileBytes } from "../process/BoundedFileBytes.js";
+import type { GhidraCommunityProcessorModule } from "./GhidraRawBinaryLanguage.js";
 
 /** One language definition and the compiler specs it declares. */
 export interface GhidraLanguageDefinition {
@@ -169,4 +171,46 @@ export const admitGhidraLanguageOverride = (
       ],
     });
   return null;
+};
+
+/**
+ * Require a provider-bound language that Ghidra does not ship, so an absent or
+ * incomplete caller-installed module fails before import rather than as a
+ * failed analysis. The diagnostic names the catalog that was read.
+ */
+export const admitGhidraCommunityLanguage = (
+  language: {
+    readonly languageId: string;
+    readonly compilerSpecId: string;
+    readonly communityModule: GhidraCommunityProcessorModule;
+  },
+  catalog: readonly GhidraLanguageDefinition[],
+  installation: {
+    readonly installDir: string;
+    readonly providerVersion: string;
+  },
+): AnalysisCapabilityUnavailableError | null => {
+  const definition = catalog.find((value) => value.id === language.languageId);
+  if (definition?.compilerSpecIds.includes(language.compilerSpecId) === true)
+    return null;
+  const checked = `the language catalog of Ghidra ${installation.providerVersion} at ${installation.installDir} (*.ldefs under ${LANGUAGE_ROOTS.map((root) => `${root}/*/data/languages`).join(" and ")})`;
+  const observed =
+    definition === undefined
+      ? `${language.languageId} is not defined in ${checked}`
+      : `${language.languageId} in ${checked} declares no ${language.compilerSpecId} compiler spec (declared: ${definition.compilerSpecIds.join(", ") || "none"})`;
+  const { name, source } = language.communityModule;
+  const reason = `GHIDRA_LANGUAGE_UNAVAILABLE: ${observed}. It is provided by the community ${name} processor module (${source}), which Ghidra does not ship; install it into that Ghidra installation. REA does not install it.`;
+  return new AnalysisCapabilityUnavailableError(
+    "ghidra",
+    "resolve_analysis_profile",
+    reason,
+    {
+      userMessage: reason,
+      diagnostics: {
+        language_id: language.languageId,
+        compiler_spec_id: language.compilerSpecId,
+        install_dir: installation.installDir,
+      },
+    },
+  );
 };

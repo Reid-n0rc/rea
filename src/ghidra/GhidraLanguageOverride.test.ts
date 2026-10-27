@@ -503,3 +503,98 @@ it
     }
   },
 );
+
+// Abbreviated self-written definition with the identity the community RX
+// processor module declares; no module file content is reproduced.
+const RX_LDEFS = (compilerId: string) => `<?xml version="1.0" encoding="UTF-8"?>
+<language_definitions>
+  <language processor="RX62T" endian="little" size="32" variant="default"
+            id="rx62t:LE:32:default">
+    <compiler name="default" spec="rx62t.cspec" id="${compilerId}"/>
+  </language>
+</language_definitions>
+`;
+
+const rxTarget: BinaryTarget = {
+  path: "/fixture-rx.bin",
+  sha256: "c".repeat(64),
+  kind: "executable",
+  format: "raw-binary",
+  architecture: "rx",
+  availableArchitectures: ["rx"],
+  entryPoint: "0x1001",
+  entryPointSource: "0x00001001",
+};
+
+// The simulated Linux host needs a POSIX install path.
+describe.skipIf(process.platform === "win32")(
+  "community raw-binary language admission",
+  () => {
+    const rxProvider = (root: string) => {
+      const parsed = parseConfig({ GHIDRA_INSTALL_DIR: root });
+      if (!parsed.ok) throw parsed.error;
+      return new GhidraProvider(parsed.value, silentLogger, {}, host);
+    };
+    const installWith = async (ldefs: string | undefined) => {
+      const root = await createTestTempDirectory("rea-ghidra-rx-catalog-");
+      const x86 = join(root, "Ghidra/Processors/x86/data/languages");
+      await mkdir(x86, { recursive: true });
+      await writeFile(join(x86, "x86.ldefs"), X86_LDEFS);
+      if (ldefs !== undefined) {
+        const rx = join(root, "Ghidra/Processors/RX/data/languages");
+        await mkdir(rx, { recursive: true });
+        await writeFile(join(rx, "rx62t.ldefs"), ldefs);
+      }
+      return root;
+    };
+
+    it("binds raw rx to the installed rx62t language before import", async () => {
+      const resolved = await rxProvider(
+        await installWith(RX_LDEFS("default")),
+      ).resolveAnalysisProfile(rxTarget);
+      if (!resolved.ok) throw resolved.error;
+      expect(resolved.value.profile?.parameters).toMatchObject({
+        target_format: "raw-binary",
+        architecture: "rx",
+        loader: "BinaryLoader",
+        language_id: "rx62t:LE:32:default",
+        compiler_spec_id: "default",
+        language_selection: "caller-supplied-v1",
+        language_catalog: "installed-community-module-v1",
+        entry_point: "0x1001",
+      });
+    });
+
+    it.each([
+      [
+        "an installation without the module",
+        undefined,
+        "rx62t:LE:32:default is not defined in the language catalog of Ghidra 12.1.4 at",
+      ],
+      [
+        "a module without the default compiler spec",
+        RX_LDEFS("gcc"),
+        "declares no default compiler spec (declared: gcc)",
+      ],
+    ])(
+      "refuses raw rx before analysis for %s, naming the catalog read",
+      async (_name, ldefs, observed) => {
+        const root = await installWith(ldefs);
+        const resolved =
+          await rxProvider(root).resolveAnalysisProfile(rxTarget);
+        if (resolved.ok) throw new Error("expected a missing-language refusal");
+        expect(resolved.error).toMatchObject({
+          _tag: "AnalysisCapabilityUnavailableError",
+          operation: "resolve_analysis_profile",
+        });
+        const { reason } = resolved.error as unknown as { reason: string };
+        expect(reason).toContain(observed);
+        expect(reason).toContain(
+          `${root} (*.ldefs under Ghidra/Processors/*/data/languages and Ghidra/Extensions/*/data/languages)`,
+        );
+        expect(reason).toContain("github.com/stefan00lpf/rx-proc-ghidra");
+        expect(reason).toContain("REA does not install it");
+      },
+    );
+  },
+);

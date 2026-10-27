@@ -516,6 +516,39 @@ describe("Ghidra raw-binary profile", () => {
       code: "target_format_unsupported",
     });
   });
+  it("admits raw rx outside Windows P0 and refuses it before import without the community language", async () => {
+    const target: BinaryTarget = {
+      path: "/tmp/rx.bin",
+      sha256: "a".repeat(64),
+      kind: "executable",
+      format: "raw-binary",
+      architecture: "rx",
+      availableArchitectures: ["rx"],
+      entryPoint: "0x1001",
+      entryPointSource: "0x1001",
+    };
+    let launched = false;
+    const ghidra = provider(installationHost(), () => {
+      launched = true;
+      throw new Error("a missing language must not launch Ghidra");
+    });
+    expect(ghidra.inspectTargetSupport(target).status).toBe("supported");
+    // The simulated installation defines no language catalog.
+    const resolved = await ghidra.resolveAnalysisProfile(target);
+    if (resolved.ok) throw new Error("expected a missing-language refusal");
+    expect(projectAnalysisError(resolved.error)).toMatchObject({
+      message: expect.stringContaining(
+        `GHIDRA_LANGUAGE_UNAVAILABLE: rx62t:LE:32:default is not defined in the language catalog of Ghidra 12.1.4 at ${INSTALL}`,
+      ),
+    });
+    expect(launched).toBe(false);
+    expect(
+      provider(installationHost("win32")).inspectTargetSupport(target),
+    ).toMatchObject({
+      status: "unsupported",
+      code: "target_format_unsupported",
+    });
+  });
 });
 
 describe("Ghidra Mach-O slice support", () => {

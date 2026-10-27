@@ -10,7 +10,10 @@ import type { JsonValue } from "../domain/jsonValue.js";
 import type { BinaryTarget } from "../domain/binaryTargetTypes.js";
 import { validateDosComLength } from "../domain/dosCom.js";
 import { err, ok, type Result } from "../domain/result.js";
-import { ghidraRawBinaryLanguage } from "./GhidraRawBinaryLanguage.js";
+import {
+  ghidraRawBinaryLanguage,
+  ghidraRawBinaryLanguageLimitations,
+} from "./GhidraRawBinaryLanguage.js";
 
 const sha256 = (bytes: Buffer): string =>
   createHash("sha256").update(bytes).digest("hex");
@@ -482,6 +485,7 @@ export const attestGhidraRawBinaryLoadImage = (
         "Language-defined uninitialized memory, such as 6502 zero page and stack, is preserved as observations but is not attested as file-backed bytes.",
         "Reset vectors, memory-mapped I/O, alternate-endian and Thumb-only variants, and runtime boot behavior are not modeled or verified. No original executable bytes are changed.",
         "Mapping ends are inclusive; a mismatching digest identifies its source range, not the first differing byte.",
+        ...ghidraRawBinaryLanguageLimitations(language),
       ],
     }),
   );
