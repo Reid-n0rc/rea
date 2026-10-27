@@ -139,3 +139,46 @@ cliTest(
     );
   },
 );
+
+cliTest.for([
+  [
+    ["--base-address", "0x8000000"],
+    "base_address applies only with format=raw-binary",
+  ],
+  [
+    [
+      "--target-format",
+      "raw-binary",
+      "--architecture",
+      "arm",
+      "--entry-point",
+      "0x8000008",
+      "--base-address",
+      "0x8000000",
+    ],
+    "must lie inside the mapped image 0x8000000..0x8000007",
+  ],
+] as const)(
+  "rejects base address selection %j before provider startup",
+  async ([selection, reason], { cli }) => {
+    const root = await createTestTempDirectory("rea-raw-cli-base-");
+    const path = join(root, "rom.bin");
+    await writeFile(path, Buffer.from("efbeadde1eff2fe1", "hex"));
+    const result = await cli.run({
+      arguments: [
+        "inspect",
+        path,
+        ...selection,
+        "--provider",
+        "ghidra",
+        "--json",
+      ],
+      environment: { HOME: root, XDG_CONFIG_HOME: root, XDG_CACHE_HOME: root },
+    });
+    expect(result.exitCode).toBe(1);
+    expect(result.json).toMatchObject({
+      code: "invalid_request",
+      details: { reason: expect.stringContaining(reason) },
+    });
+  },
+);

@@ -123,6 +123,7 @@ export interface BinaryTargetResolverOptions {
   readonly formatHint?: ExecutableFormatHint;
   readonly architecture?: BinaryArchitecture;
   readonly entryPoint?: string;
+  readonly baseAddress?: string;
   readonly signal?: AbortSignal;
   readonly resources?: ArtifactResourceScope;
 }
@@ -258,7 +259,14 @@ const readOpenedBinaryTarget = async (
   const { path, sourcePath, selectedPath, bundleInfoPlist } = selected;
   const bundle = bundleInfoPlist === undefined ? {} : { bundleInfoPlist };
   const hostArchitecture = options.hostArchitecture ?? process.arch;
-  const { targetKind, formatHint, signal, architecture, entryPoint } = options;
+  const {
+    targetKind,
+    formatHint,
+    signal,
+    architecture,
+    entryPoint,
+    baseAddress,
+  } = options;
   throwIfTargetResolutionCancelled(signal);
   if (formatHint === "raw-binary") {
     if (targetKind !== undefined && targetKind !== "executable")
@@ -272,6 +280,7 @@ const readOpenedBinaryTarget = async (
     const admitted = admitRawBinary({
       architecture,
       entryPoint,
+      ...(baseAddress === undefined ? {} : { baseAddress }),
       fileBytes: metadata.size,
     });
     if (!admitted.ok)
@@ -291,12 +300,19 @@ const readOpenedBinaryTarget = async (
       availableArchitectures: [admitted.value.architecture],
       entryPoint: admitted.value.entryPoint,
       entryPointSource: admitted.value.entryPointSource,
+      ...(admitted.value.baseAddress === undefined
+        ? {}
+        : {
+            baseAddress: admitted.value.baseAddress,
+            baseAddressSource: admitted.value.baseAddressSource,
+          }),
     });
   }
   const pairing = rawBinarySelectionError({
     ...(formatHint === undefined ? {} : { format: formatHint }),
     architecture,
     entryPoint,
+    baseAddress,
   });
   if (pairing !== undefined)
     return err(

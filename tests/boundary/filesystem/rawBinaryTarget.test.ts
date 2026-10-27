@@ -140,3 +140,39 @@ describe("raw-binary admission", () => {
     ).toMatchObject({ ok: false, error: { _tag: "BinaryTargetError" } });
   });
 });
+
+describe("raw-binary base address admission", () => {
+  it("records a separate base and refuses it for other formats", async () => {
+    const directory = await createTestTempDirectory("rea-raw-base-target-");
+    const path = join(directory, "rom.bin");
+    await writeFile(path, Buffer.from("efbeadde1eff2fe1", "hex"));
+    const target = await parseBinaryTarget(path, {
+      formatHint: "raw-binary",
+      architecture: "arm",
+      entryPoint: "0x08000004",
+      baseAddress: "0x08000000",
+    });
+    expect(target).toMatchObject({
+      ok: true,
+      value: {
+        format: "raw-binary",
+        entryPoint: "0x8000004",
+        entryPointSource: "0x08000004",
+        baseAddress: "0x8000000",
+        baseAddressSource: "0x08000000",
+      },
+    });
+    const detected = await parseBinaryTarget(path, {
+      baseAddress: "0x08000000",
+    });
+    expect(detected).toMatchObject({
+      ok: false,
+      error: {
+        constraint: "load_selection_rejected",
+        message: expect.stringContaining(
+          "base_address applies only with format=raw-binary",
+        ),
+      },
+    });
+  });
+});

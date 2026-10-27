@@ -47,4 +47,38 @@ describe("open_binary raw-binary input contract", () => {
       }).success,
     ).toBe(false);
   });
+  it("accepts base_address only with format=raw-binary", () => {
+    expect(
+      openBinaryInputSchema.safeParse({
+        path: "/tmp/ecu.bin",
+        format: "raw-binary",
+        architecture: "arm",
+        entry_point: "0x8000100",
+        base_address: "0x8000000",
+      }).success,
+    ).toBe(true);
+    for (const format of [undefined, "dos-com", "gamecube-dol"] as const) {
+      const parsed = openBinaryInputSchema.safeParse({
+        path: "/tmp/ecu.bin",
+        ...(format === undefined ? {} : { format }),
+        base_address: "0x8000000",
+      });
+      expect(parsed.success).toBe(false);
+      expect(parsed.error?.issues).toEqual([
+        expect.objectContaining({
+          path: ["base_address"],
+          message: "base_address applies only with format=raw-binary",
+        }),
+      ]);
+    }
+    expect(
+      openBinaryInputSchema.safeParse({
+        path: "/tmp/ecu.bin",
+        format: "raw-binary",
+        architecture: "arm",
+        entry_point: "0x8000100",
+        base_address: "8000000",
+      }).success,
+    ).toBe(false);
+  });
 });

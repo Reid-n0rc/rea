@@ -3445,6 +3445,51 @@ const analyzerReport = (
   analyzers: analyzers.map(([name, status]) => ({ name, status })),
 });
 
+describe("Ghidra raw-binary base address", () => {
+  it("imports file offset 0 at the base and seeds the separate entry", async () => {
+    const launchers: GhidraHeadlessLauncher[] = [];
+    const ghidra = configuredProvider({}, (options) => {
+      launchers.push(options.launcher as GhidraHeadlessLauncher);
+      return {
+        start: () => Promise.resolve(ok(sessionInfo())),
+        callTool: () => Promise.resolve(ok(null)),
+        close: () => Promise.resolve(ok(null)),
+      };
+    });
+    const plain: BinaryTarget = {
+      path: "/tmp/rom.bin",
+      sha256: "a".repeat(64),
+      kind: "executable",
+      format: "raw-binary",
+      architecture: "arm",
+      availableArchitectures: ["arm"],
+      entryPoint: "0x8000100",
+      entryPointSource: "0x8000100",
+    };
+    for (const [target, baseAddr] of [
+      [plain, "0x8000100"],
+      [
+        { ...plain, baseAddress: "0x8000000", baseAddressSource: "0x8000000" },
+        "0x8000000",
+      ],
+    ] as const) {
+      const resolved = await ghidra.resolveAnalysisProfile(target);
+      if (!resolved.ok || resolved.value.profile === null)
+        throw new Error("expected a bound raw-binary profile");
+      const client = ghidra.createClient(target, resolved.value.profile);
+      expect((await client.execute("health", {})).ok).toBe(true);
+      expect(launchers.at(-1)?.options.rawBinary).toEqual({
+        languageId: "ARM:LE:32:v7",
+        compilerSpecId: "default",
+        baseAddr,
+        entryAddr: "0x8000100",
+      });
+      await client.close();
+    }
+    expect(launchers).toHaveLength(2);
+  });
+});
+
 describe("Ghidra disabled analyzer options", () => {
   it("records the configured analyzer options in the analysis profile", async () => {
     const ghidra = configuredProvider({

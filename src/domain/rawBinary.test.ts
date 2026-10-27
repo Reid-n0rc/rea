@@ -302,3 +302,172 @@ describe("raw-binary selection pairing", () => {
     ).toBe("architecture and entry_point apply only with format=raw-binary");
   });
 });
+
+describe("raw-binary base address", () => {
+  it("maps file offset 0 at a separate base that contains the entry", () => {
+    expect(
+      admitRawBinary({
+        architecture: "arm",
+        entryPoint: "0x08000100",
+        baseAddress: "0x08000000",
+        fileBytes: 0x200,
+      }),
+    ).toEqual({
+      ok: true,
+      value: {
+        architecture: "arm",
+        entryPoint: "0x8000100",
+        entryPointSource: "0x08000100",
+        baseAddress: "0x8000000",
+        baseAddressSource: "0x08000000",
+      },
+    });
+  });
+  it("admits the last mapped byte as the entry", () => {
+    const result = admitRawBinary({
+      architecture: "x86",
+      entryPoint: "0x10ff",
+      baseAddress: "0x1000",
+      fileBytes: 0x100,
+    });
+    expect(result.ok).toBe(true);
+  });
+  it("shares the omitted identity when the base equals the entry", () => {
+    expect(
+      admitRawBinary({
+        architecture: "x86",
+        entryPoint: "0x1000",
+        baseAddress: "0x01000",
+        fileBytes: 4,
+      }),
+    ).toEqual(
+      admitRawBinary({
+        architecture: "x86",
+        entryPoint: "0x1000",
+        fileBytes: 4,
+      }),
+    );
+  });
+  it.each([
+    ["0x0fff", "0x1000", 4],
+    ["0x1004", "0x1000", 4],
+  ])(
+    "rejects entry %s outside the image mapped at %s",
+    (entryPoint, baseAddress, fileBytes) => {
+      const last = `0x${(BigInt(baseAddress) + BigInt(fileBytes) - 1n).toString(16)}`;
+      expect(
+        admitRawBinary({
+          architecture: "x86",
+          entryPoint,
+          baseAddress,
+          fileBytes,
+        }),
+      ).toEqual({
+        ok: false,
+        error: {
+          reason: `raw-binary entry_point 0x${BigInt(entryPoint).toString(16)} must lie inside the mapped image 0x1000..${last}`,
+          constraint: "load_selection_rejected",
+        },
+      });
+    },
+  );
+  it.each([
+    ["arm", "0x8000002", "0x8000004", 4],
+    ["arm64", "0x8000002", "0x8000004", 4],
+    ["m68k", "0x1001", "0x1002", 2],
+  ] as const)(
+    "applies the %s entry alignment to the base",
+    (architecture, baseAddress, entryPoint, alignment) => {
+      expect(
+        admitRawBinary({
+          architecture,
+          entryPoint,
+          baseAddress,
+          fileBytes: 16,
+        }),
+      ).toEqual({
+        ok: false,
+        error: {
+          reason: `raw-binary ${architecture} base_address 0x${BigInt(baseAddress).toString(16)} must be ${alignment}-byte aligned`,
+          constraint: "load_selection_rejected",
+        },
+      });
+    },
+  );
+});
+
+describe("raw-binary base address bounds", () => {
+  it("fits the 6502 and m68k widths from the base, not the entry", () => {
+    expect(
+      admitRawBinary({
+        architecture: "6502",
+        entryPoint: "0xfffc",
+        baseAddress: "0x8000",
+        fileBytes: 0x8000,
+      }).ok,
+    ).toBe(true);
+    expect(
+      admitRawBinary({
+        architecture: "6502",
+        entryPoint: "0xfffc",
+        baseAddress: "0x8000",
+        fileBytes: 0x8001,
+      }),
+    ).toEqual({
+      ok: false,
+      error: {
+        reason:
+          "raw-binary mapping from 0x8000 must fit in the 6502 address width",
+        constraint: "load_selection_rejected",
+      },
+    });
+    expect(
+      admitRawBinary({
+        architecture: "m68k",
+        entryPoint: "0xffffff00",
+        baseAddress: "0xfffffe00",
+        fileBytes: 0x201,
+      }),
+    ).toEqual({
+      ok: false,
+      error: {
+        reason:
+          "raw-binary mapping from 0xfffffe00 must fit in the m68k address width",
+        constraint: "load_selection_rejected",
+      },
+    });
+  });
+  it("rejects a malformed base", () => {
+    expect(
+      admitRawBinary({
+        architecture: "x86",
+        entryPoint: "0x1000",
+        baseAddress: "1000",
+        fileBytes: 4,
+      }),
+    ).toEqual({
+      ok: false,
+      error: {
+        reason: "base_address must be a hexadecimal address of the form 0x…",
+        constraint: "load_selection_rejected",
+      },
+    });
+  });
+  it("accepts base_address only with format=raw-binary", () => {
+    expect(
+      rawBinarySelectionError({
+        format: "raw-binary",
+        architecture: "arm",
+        entryPoint: "0x8000100",
+        baseAddress: "0x8000000",
+      }),
+    ).toBeUndefined();
+    for (const format of [undefined, "dos-com", "gamecube-dol"] as const)
+      expect(
+        rawBinarySelectionError({
+          ...(format === undefined ? {} : { format }),
+          baseAddress: "0x8000000",
+        }),
+      ).toBe("base_address applies only with format=raw-binary");
+  });
+});

@@ -267,6 +267,10 @@ export const resolveGhidraAnalysisProfile = async (
             ? {}
             : { language_catalog: "installed-community-module-v1" }),
           entry_point: target.entryPoint,
+          // Omitted when file offset 0 is mapped at the entry, today's profile.
+          ...(target.baseAddress === undefined
+            ? {}
+            : { base_address: target.baseAddress }),
           entry_seed: "external-entry-and-function-before-analysis-v1",
           ...analyzerParameters,
         }),
@@ -486,6 +490,9 @@ const createGhidraProfile = (
             load_segment: parameters.load_segment ?? null,
             address_coordinates: parameters.address_coordinates ?? null,
             entry_point: parameters.entry_point ?? null,
+            ...(parameters.base_address === undefined
+              ? {}
+              : { base_address: parameters.base_address }),
           }),
         }
       : {}),

@@ -117,6 +117,9 @@ describe("analysis snapshot entry admission", () => {
   });
 });
 
+const RAW_QUERY_ID_WITHOUT_BASE =
+  "query_825c7575e2ea8756d44b7cb6395a9ed7fd6f1d9bfc39cd1b968f11904e20ee60";
+
 describe("analysis snapshot target identity", () => {
   it.each(RAW_ONLY_ARCHITECTURES)(
     "keeps %s confined to executable raw snapshots",
@@ -188,6 +191,63 @@ describe("analysis snapshot target identity", () => {
     expect(snapshotTarget(ANALYSIS_SNAPSHOT_TARGET)).not.toHaveProperty(
       "entry_point",
     );
+  });
+});
+
+describe("analysis snapshot raw base address identity", () => {
+  const target: BinaryTarget = {
+    path: "/fixture/image.bin",
+    sha256: ANALYSIS_SNAPSHOT_TARGET.sha256,
+    kind: "executable",
+    format: "raw-binary",
+    architecture: "arm",
+    availableArchitectures: ["arm"],
+    entryPoint: "0x8000100",
+    entryPointSource: "0x08000100",
+  };
+  const based: BinaryTarget = {
+    ...target,
+    baseAddress: "0x8000000",
+    baseAddressSource: "0x08000000",
+  };
+
+  it("keeps the identity of a raw target without base_address", () => {
+    const binding = snapshotBinding(ANALYSIS_SNAPSHOT_PROFILE);
+    expect(snapshotTarget(target)).toEqual({
+      sha256: ANALYSIS_SNAPSHOT_TARGET.sha256,
+      kind: "executable",
+      architecture: "arm",
+      format: "raw-binary",
+      entry_point: "0x8000100",
+    });
+    // Query identity computed before base_address existed.
+    expect(
+      analysisQueryId(snapshotTarget(target), binding, "list_procedures", {}),
+    ).toBe(RAW_QUERY_ID_WITHOUT_BASE);
+  });
+
+  it("partitions raw snapshots and query identities by the base address", () => {
+    const binding = snapshotBinding(ANALYSIS_SNAPSHOT_PROFILE);
+    const snapshot = snapshotTarget(based);
+    expect(snapshot).toHaveProperty("base_address", "0x8000000");
+    expect(snapshotMatchesTarget(snapshot, based)).toBe(true);
+    expect(snapshotMatchesTarget(snapshot, target)).toBe(false);
+    expect(snapshotMatchesTarget(snapshotTarget(target), based)).toBe(false);
+    expect(
+      snapshotMatchesTarget(snapshot, { ...based, baseAddress: "0x7000000" }),
+    ).toBe(false);
+    expect(analysisQueryId(snapshot, binding, "list_procedures", {})).not.toBe(
+      analysisQueryId(snapshotTarget(target), binding, "list_procedures", {}),
+    );
+    expect(
+      analysisSnapshotSchema.parse({
+        target: snapshot,
+        binding,
+        entries: [],
+        workflow_entries: [],
+        evidence_bundle: createEvidenceBundle([]),
+      }).target,
+    ).toEqual(snapshot);
   });
 });
 

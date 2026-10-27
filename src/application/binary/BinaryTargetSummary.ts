@@ -13,4 +13,7 @@ export const binaryTargetSummary = (target: BinaryTarget) =>
     ...(target.format === "raw-binary" || target.format === "gamecube-dol"
       ? { entry_point: target.entryPoint }
       : {}),
+    ...(target.format === "raw-binary" && target.baseAddress !== undefined
+      ? { base_address: target.baseAddress }
+      : {}),
   });

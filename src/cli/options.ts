@@ -7,6 +7,7 @@ import {
 import type { BinaryArchitecture } from "../domain/binaryTargetTypes.js";
 import {
   binaryArchitectureSchema,
+  rawBinaryBaseAddressSchema,
   rawBinaryEntryPointSchema,
 } from "../domain/rawBinary.js";
 import { analysisProviderSelectorSchema } from "../domain/providerSelection.js";
@@ -49,7 +50,13 @@ export const architectureSelectionOption = binaryArchitectureSchema
 export const entryPointSelectionOption = rawBinaryEntryPointSchema
   .optional()
   .describe(
-    "Caller-supplied load and entry address (0xhex); required with --target-format raw-binary, optional with gamecube-dol (must equal the DOL header entry)",
+    "Caller-supplied entry address (0xhex); file offset 0 is mapped here unless --base-address is given; required with --target-format raw-binary, optional with gamecube-dol (must equal the DOL header entry)",
+  );
+
+export const baseAddressSelectionOption = rawBinaryBaseAddressSchema
+  .optional()
+  .describe(
+    "Address (0xhex) where raw file offset 0 is mapped; --entry-point must lie inside the mapped file; only with --target-format raw-binary",
   );
 
 /** Shared CLI flags that bind a native target interpretation. */
@@ -57,6 +64,7 @@ export const nativeOpenOptionFields = {
   "target-format": formatSelectionOption,
   architecture: architectureSelectionOption,
   "entry-point": entryPointSelectionOption,
+  "base-address": baseAddressSelectionOption,
   provider: providerSelectionOption,
 };
 
@@ -67,6 +75,7 @@ export interface NativeOpenCliFlags {
   readonly "target-format"?: ExecutableFormatHint | undefined;
   readonly architecture?: BinaryArchitecture | undefined;
   readonly "entry-point"?: string | undefined;
+  readonly "base-address"?: string | undefined;
 }
 
 /** Map native CLI flags onto the shared one-shot analysis options. */
@@ -85,5 +94,8 @@ export const directAnalysisOptionsFromCli = (
   ...(options["entry-point"] === undefined
     ? {}
     : { entryPoint: options["entry-point"] }),
+  ...(options["base-address"] === undefined
+    ? {}
+    : { baseAddress: options["base-address"] }),
   ...(options.provider === undefined ? {} : { providerId: options.provider }),
 });

@@ -2,6 +2,7 @@ import { executableFormatHintSchema } from "../domain/dosCom.js";
 import { absoluteLocalPathStringSchema } from "../domain/localPath.js";
 import {
   binaryArchitectureSchema,
+  rawBinaryBaseAddressSchema,
   rawBinaryEntryPointSchema,
   rawBinarySelectionError,
 } from "../domain/rawBinary.js";
@@ -35,7 +36,12 @@ export const openBinaryInputSchema = z
     entry_point: rawBinaryEntryPointSchema
       .optional()
       .describe(
-        "Caller-supplied load and entry address (0xhex). File offset 0 is mapped here. Required with format=raw-binary; rejected otherwise. Optional with format=gamecube-dol; must equal the DOL header entry.",
+        "Caller-supplied entry address (0xhex). File offset 0 is mapped here unless base_address is given. Required with format=raw-binary; rejected otherwise. Optional with format=gamecube-dol; must equal the DOL header entry.",
+      ),
+    base_address: rawBinaryBaseAddressSchema
+      .optional()
+      .describe(
+        "Optional address (0xhex) where raw file offset 0 is mapped; entry_point must lie inside the mapped file. Omission maps file offset 0 at entry_point. Only with format=raw-binary.",
       ),
     provider_id: analysisProviderSelectorSchema.optional(),
     snapshot_path: snapshotPathSchema.optional(),
@@ -49,18 +55,23 @@ export const openBinaryInputSchema = z
       ...(value.entry_point === undefined
         ? {}
         : { entryPoint: value.entry_point }),
+      ...(value.base_address === undefined
+        ? {}
+        : { baseAddress: value.base_address }),
     });
     if (pairing === undefined) return;
     context.addIssue({
       code: "custom",
       path:
-        value.format === "raw-binary"
-          ? value.architecture === undefined
-            ? ["architecture"]
-            : ["entry_point"]
-          : value.architecture === undefined
-            ? ["entry_point"]
-            : ["architecture"],
+        value.format !== "raw-binary" && value.base_address !== undefined
+          ? ["base_address"]
+          : value.format === "raw-binary"
+            ? value.architecture === undefined
+              ? ["architecture"]
+              : ["entry_point"]
+            : value.architecture === undefined
+              ? ["entry_point"]
+              : ["architecture"],
       message: pairing,
     });
   });

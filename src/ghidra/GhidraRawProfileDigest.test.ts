@@ -20,7 +20,11 @@ const configFor = (environment: NodeJS.ProcessEnv) => {
   return parsed.value;
 };
 
-const raw = (architecture: "6502" | "x86", entryPoint: string): BinaryTarget =>
+const raw = (
+  architecture: "6502" | "x86",
+  entryPoint: string,
+  baseAddress?: string,
+): BinaryTarget =>
   ({
     path: "/tmp/raw.bin",
     sha256: "a".repeat(64),
@@ -30,6 +34,9 @@ const raw = (architecture: "6502" | "x86", entryPoint: string): BinaryTarget =>
     availableArchitectures: [architecture],
     entryPoint,
     entryPointSource: entryPoint,
+    ...(baseAddress === undefined
+      ? {}
+      : { baseAddress, baseAddressSource: baseAddress }),
   }) as unknown as BinaryTarget;
 
 describe("raw-binary analysis profile digest", () => {
@@ -67,5 +74,34 @@ describe("raw-binary analysis profile digest", () => {
         disabled_analyzers: ["Aggressive Instruction Finder"],
       },
     });
+  });
+
+  it("keeps the profile without base_address and commits a separate base", async () => {
+    const ghidra = new GhidraProvider(configFor({}), silentLogger, {}, host);
+    const plain = await ghidra.resolveAnalysisProfile(raw("6502", "0x8001"));
+    const based = await ghidra.resolveAnalysisProfile(
+      raw("6502", "0x8001", "0x8000"),
+    );
+    const moved = await ghidra.resolveAnalysisProfile(
+      raw("6502", "0x8001", "0x7000"),
+    );
+    if (!plain.ok || !based.ok || !moved.ok)
+      throw new Error("expected raw profiles");
+    expect(plain.value.profile?.digest).toBe(RAW_DIGESTS["6502"]);
+    expect(plain.value.profile?.parameters).not.toHaveProperty("base_address");
+    expect(based.value.profile?.parameters).toMatchObject({
+      entry_point: "0x8001",
+      base_address: "0x8000",
+    });
+    const digests = new Set([
+      plain.value.profile?.digest,
+      based.value.profile?.digest,
+      moved.value.profile?.digest,
+    ]);
+    expect(digests.size).toBe(3);
+    // Function coordinates depend on where file offset 0 is mapped.
+    expect(
+      based.value.profile?.parameters.function_coordinate_context,
+    ).not.toEqual(plain.value.profile?.parameters.function_coordinate_context);
   });
 });

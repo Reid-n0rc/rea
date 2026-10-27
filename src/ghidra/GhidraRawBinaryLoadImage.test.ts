@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 import { describe, expect, it } from "vitest";
 
 import { attestGhidraRawBinaryLoadImage } from "./GhidraLoadImageValues.js";
@@ -6,6 +8,9 @@ import {
   ghidraRawBinaryLanguage,
   ghidraRawBinaryLanguageLimitations,
 } from "./GhidraRawBinaryLanguage.js";
+
+const RAW_LOAD_IMAGE_WITHOUT_BASE_SHA256 =
+  "22e87550552b7d26eb5547161f6d7b815ceab8e158642058ee4796bc3848f948";
 
 describe("raw-binary Ghidra language binding", () => {
   it("maps the big-endian m68k family to the default 68000 language", () => {
@@ -305,6 +310,22 @@ describe("raw-binary independent load-image checks", () => {
       },
     });
   });
+  it("keeps the load image of a target without base_address byte-for-byte", () => {
+    // Digest of the complete attestation produced before base_address existed.
+    const f = fixtureRawBinaryLoadImage();
+    const result = attestGhidraRawBinaryLoadImage(
+      f.snapshot,
+      f.target,
+      f.observation,
+    );
+    if (!result.ok) throw new Error(result.error);
+    expect(
+      createHash("sha256").update(JSON.stringify(result.value)).digest("hex"),
+    ).toBe(RAW_LOAD_IMAGE_WITHOUT_BASE_SHA256);
+    expect(JSON.stringify(result.value)).not.toContain(
+      "entry_point.file_offset",
+    );
+  });
   it("rejects stale snapshot identity", () => {
     const f = fixtureRawBinaryLoadImage();
     expect(
@@ -355,5 +376,120 @@ describe("raw-binary community language attestation", () => {
         ...ghidraRawBinaryLanguageLimitations(ghidraRawBinaryLanguage("rx")),
       ]),
     );
+  });
+});
+
+describe("raw-binary load images with a separate base address", () => {
+  // 8 bytes at 0x8000000: a data word, then `bx lr` at the entry 0x8000004.
+  const separateBase = () => {
+    const bytes = Buffer.from("efbeadde1eff2fe1", "hex");
+    const digest = createHash("sha256").update(bytes).digest("hex");
+    const f = fixtureRawBinaryLoadImage();
+    const target = {
+      ...f.target,
+      sha256: digest,
+      entryPoint: "0x8000004",
+      entryPointSource: "0x08000004",
+      baseAddress: "0x8000000",
+      baseAddressSource: "0x08000000",
+    };
+    f.observation.entry_points = [target.entryPoint];
+    const source = f.observation.source_files[0];
+    const mapping = f.observation.mappings[0];
+    if (source === undefined || mapping === undefined)
+      throw new Error("Missing source mapping fixture");
+    Object.assign(source, {
+      size: bytes.length,
+      original_sha256: digest,
+      modified_sha256: digest,
+    });
+    Object.assign(mapping, {
+      end: "0x8000007",
+      length: bytes.length,
+      sha256: digest,
+    });
+    return {
+      snapshot: { sha256: digest, bytes: bytes.length },
+      target,
+      observation: f.observation,
+      mapping,
+    };
+  };
+
+  it("verifies file offset 0 at the base and the entry inside the mapping", () => {
+    const f = separateBase();
+    const result = attestGhidraRawBinaryLoadImage(
+      f.snapshot,
+      f.target,
+      f.observation,
+    );
+    expect(result).toMatchObject({
+      ok: true,
+      value: {
+        status: "verified",
+        base_address: "0x8000000",
+        file_bytes: 8,
+        entry: { address: "0x8000004", file_offset: 4 },
+        checks: expect.arrayContaining([
+          expect.objectContaining({
+            name: "mapping.start",
+            expected: "0x8000000",
+            matched: true,
+          }),
+          expect.objectContaining({
+            name: "entry_point.file_offset",
+            expected: 4,
+            observed: 4,
+            matched: true,
+          }),
+        ]),
+      },
+    });
+    if (!result.ok) throw new Error(result.error);
+    expect(result.value.limitations[1]).toContain(
+      "File offset 0 is mapped at the caller-supplied base address 0x8000000; the entry is at file offset 4.",
+    );
+  });
+
+  it("reports a mismatch when Ghidra mapped file offset 0 at the entry instead", () => {
+    const f = separateBase();
+    Object.assign(f.mapping, { start: "0x8000004", end: "0x800000b" });
+    expect(
+      attestGhidraRawBinaryLoadImage(f.snapshot, f.target, f.observation),
+    ).toMatchObject({
+      ok: true,
+      value: {
+        status: "mismatch",
+        checks: expect.arrayContaining([
+          expect.objectContaining({ name: "mapping.start", matched: false }),
+          expect.objectContaining({
+            name: "entry_point.file_offset",
+            expected: 4,
+            observed: 0,
+            matched: false,
+          }),
+        ]),
+      },
+    });
+  });
+
+  it("reports an entry outside the observed file mapping as unmapped", () => {
+    const f = separateBase();
+    Object.assign(f.mapping, { end: "0x8000003", length: 4 });
+    expect(
+      attestGhidraRawBinaryLoadImage(f.snapshot, f.target, f.observation),
+    ).toMatchObject({
+      ok: true,
+      value: {
+        status: "mismatch",
+        checks: expect.arrayContaining([
+          expect.objectContaining({
+            name: "entry_point.file_offset",
+            observed: null,
+            matched: false,
+          }),
+        ]),
+      },
+    });
   });
 });

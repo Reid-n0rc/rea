@@ -415,3 +415,147 @@ it.skipIf(process.platform !== "win32")(
     expect(calls).toEqual(["address_name"]);
   },
 );
+
+it("maps a raw image at a separate base and replaces the session when the base changes", async () => {
+  const root = await createTestTempDirectory("rea-raw-mcp-base-");
+  const path = join(root, "rom.bin");
+  // Two data words at the base, then `bx lr` at the entry.
+  await writeFile(path, Buffer.from("efbeaddeefbeadde1eff2fe1", "hex"));
+  const fixture = createCacheProvider([]);
+  const resolved: (string | undefined)[] = [];
+  const { client, session } = await connect({
+    ...fixture,
+    resolveAnalysisProfile: (target) => {
+      if (target.format !== "raw-binary")
+        throw new Error("expected raw binary");
+      resolved.push(target.baseAddress);
+      return Promise.resolve(
+        ok({
+          profile: createAnalysisProfile(
+            { ...fixture.identity(), version: "1" },
+            {
+              entry_point: target.entryPoint,
+              ...(target.baseAddress === undefined
+                ? {}
+                : { base_address: target.baseAddress }),
+            },
+          ),
+        }),
+      );
+    },
+    createClient: (target) => {
+      if (target.format !== "raw-binary")
+        throw new Error("expected raw binary");
+      return {
+        execute: () => Promise.resolve(observed(target.entryPoint)),
+        close: () => Promise.resolve(ok(null)),
+      };
+    },
+  });
+  const tools = (await client.listTools()).tools;
+  const validateAdvertised = (name: "open_binary" | "binary_session") => {
+    const tool = tools.find((candidate) => candidate.name === name);
+    if (tool?.outputSchema === undefined)
+      throw new Error(`missing ${name} output schema`);
+    return new Ajv2020({ strict: false, validateFormats: false }).compile(
+      z.record(z.string(), z.unknown()).parse(tool.outputSchema),
+    );
+  };
+  const open = (base_address?: string) =>
+    client.callTool({
+      name: "open_binary",
+      arguments: {
+        path,
+        format: "raw-binary",
+        architecture: "arm",
+        entry_point: "0x08000008",
+        ...(base_address === undefined ? {} : { base_address }),
+      },
+    });
+  for (const [base, canonical] of [
+    ["0x08000000", "0x8000000"],
+    ["0x8000000", "0x8000000"],
+    ["0x08000004", "0x8000004"],
+  ] as const) {
+    const opened = await open(base);
+    expect(opened.isError, JSON.stringify(opened)).not.toBe(true);
+    expect(validateAdvertised("open_binary")(opened.structuredContent)).toBe(
+      true,
+    );
+    expect(structured(opened).result).toMatchObject({
+      entry_point: "0x8000008",
+      base_address: canonical,
+    });
+    const status = await client.callTool({
+      name: "binary_session",
+      arguments: {},
+    });
+    expect(validateAdvertised("binary_session")(status.structuredContent)).toBe(
+      true,
+    );
+    expect(structured(status).result).toMatchObject({
+      entry_point: "0x8000008",
+      base_address: canonical,
+    });
+  }
+  // Without a base, file offset 0 is mapped at the entry as before.
+  const plain = await open();
+  expect(plain.isError, JSON.stringify(plain)).not.toBe(true);
+  expect(structured(plain).result).not.toHaveProperty("base_address");
+  expect(session.analysisProfile()?.parameters).not.toHaveProperty(
+    "base_address",
+  );
+  // A base equal to the entry is the same mapping and keeps that session.
+  const same = await open("0x8000008");
+  expect(same.isError, JSON.stringify(same)).not.toBe(true);
+  expect(structured(same).result).not.toHaveProperty("base_address");
+  expect(resolved).toEqual(["0x8000000", "0x8000004", undefined]);
+});
+
+it.each([
+  [
+    { base_address: "0x8000000" },
+    "base_address applies only with format=raw-binary",
+  ],
+  [
+    {
+      format: "raw-binary",
+      architecture: "arm",
+      entry_point: "0x8000008",
+      base_address: "0x8000000",
+    },
+    "must lie inside the mapped image 0x8000000..0x8000007",
+  ],
+  [
+    {
+      format: "raw-binary",
+      architecture: "arm",
+      entry_point: "0x8000004",
+      base_address: "0x8000002",
+    },
+    "base_address 0x8000002 must be 4-byte aligned",
+  ],
+] as const)(
+  "rejects an invalid base selection %j before selecting a provider",
+  async (selection, reason) => {
+    const root = await createTestTempDirectory("rea-raw-mcp-base-reject-");
+    const path = join(root, "rom.bin");
+    await writeFile(path, Buffer.from("efbeadde1eff2fe1", "hex"));
+    const { client, session } = await connect({
+      ...createCacheProvider([]),
+      resolveAnalysisProfile: () => {
+        throw new Error("invalid input must not select a provider");
+      },
+      createClient: () => {
+        throw new Error("invalid input must not launch a provider");
+      },
+    });
+    const opened = await client.callTool({
+      name: "open_binary",
+      arguments: { path, ...selection },
+    });
+    expect(opened.isError).toBe(true);
+    expect(JSON.stringify(opened.content)).toContain(reason);
+    expect(session.activeTarget()).toBeUndefined();
+  },
+);

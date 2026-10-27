@@ -215,6 +215,12 @@ export type BinaryTarget =
       )[];
       readonly entryPoint: string;
       readonly entryPointSource: string;
+      /**
+       * Canonical address of raw file offset 0 when it differs from the entry;
+       * omitted means file offset 0 is mapped at the entry.
+       */
+      readonly baseAddress?: string;
+      readonly baseAddressSource?: string;
       readonly executableRole?: never;
       readonly managed?: never;
     })

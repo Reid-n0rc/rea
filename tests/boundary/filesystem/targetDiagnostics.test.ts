@@ -258,7 +258,7 @@ describe("raw-binary load rejection diagnostics", () => {
       },
       remediation: {
         action:
-          "Correct the reported load argument (--target-format, --architecture, or --entry-point on the CLI; format, architecture, or entry_point through MCP) and retry.",
+          "Correct the reported load argument (--target-format, --architecture, --entry-point, or --base-address on the CLI; format, architecture, entry_point, or base_address through MCP) and retry.",
       },
     });
     expect(projected.message).not.toContain("Check that the path");

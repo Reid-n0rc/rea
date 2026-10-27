@@ -46,6 +46,7 @@ import { canonicalJsonDigestSteps } from "./canonicalJsonDigestSteps.js";
 import { freezeJsonSnapshot } from "./immutableJson.js";
 import {
   binaryArchitectureSchema,
+  rawBinaryBaseAddressSchema,
   rawBinaryEntryPointSchema,
 } from "./rawBinary.js";
 import {
@@ -107,6 +108,8 @@ const targetSchema = z.discriminatedUnion("format", [
     kind: z.literal("executable"),
     architecture: binaryArchitectureSchema,
     entry_point: rawBinaryEntryPointSchema,
+    // Omitted when file offset 0 is mapped at entry_point, the original identity.
+    base_address: rawBinaryBaseAddressSchema.exactOptional(),
   }),
   targetIdentitySchema.extend({
     format: z.literal("gamecube-dol"),
@@ -373,6 +376,9 @@ export const snapshotTarget = (target: BinaryTarget): AnalysisSnapshotTarget =>
         architecture: target.architecture,
         format: target.format,
         entry_point: target.entryPoint,
+        ...(target.baseAddress === undefined
+          ? {}
+          : { base_address: target.baseAddress }),
       }
     : target.format === "gamecube-dol"
       ? {
@@ -409,7 +415,8 @@ export const snapshotMatchesTarget = (
   snapshot.architecture === (target.architecture ?? null) &&
   (snapshot.format !== "raw-binary" ||
     (target.format === "raw-binary" &&
-      snapshot.entry_point === target.entryPoint)) &&
+      snapshot.entry_point === target.entryPoint &&
+      snapshot.base_address === target.baseAddress)) &&
   (snapshot.format !== "gamecube-dol" ||
     (target.format === "gamecube-dol" &&
       snapshot.entry_point === target.entryPoint));
