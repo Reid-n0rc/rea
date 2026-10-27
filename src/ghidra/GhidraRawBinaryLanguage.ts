@@ -50,6 +50,9 @@ export const ghidraRawBinaryLanguage = (
         compilerSpecId: "default",
         defaultAddressSpace: "ram",
       };
+    case "rx":
+      // Ghidra target support does not admit rx until a language is mapped.
+      throw new Error("No Ghidra language is mapped for raw rx");
     case "arm64":
       return {
         languageId: "AARCH64:LE:64:v8A",

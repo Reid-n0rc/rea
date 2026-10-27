@@ -122,6 +122,8 @@ it.each([
   ["arm", "0x08000000", "0x8000000", "1eff2fe1"],
   ["6502", "0x008001", "0x8001", "a92a60"],
   ["m68k", "0x00001000", "0x1000", "4e714e7170014e75"],
+  // RX has no entry alignment constraint; 03 is NOP and 02 is RTS.
+  ["rx", "0x00001001", "0x1001", "0302"],
 ])(
   "opens a headerless %s image when architecture and entry are supplied",
   async (architecture, entryPoint, canonical, bytes) => {

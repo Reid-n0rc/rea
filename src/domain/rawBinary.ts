@@ -16,6 +16,7 @@ export const BINARY_ARCHITECTURES = [
   "arm64",
   "6502",
   "m68k",
+  "rx",
 ] as const satisfies readonly BinaryArchitecture[];
 
 /** Provider-neutral CPU family for a caller-supplied raw-binary load. */
@@ -81,7 +82,8 @@ const addressWidth = (architecture: BinaryArchitecture): bigint =>
     ? 0xffffn
     : architecture === "x86" ||
         architecture === "arm" ||
-        architecture === "m68k"
+        architecture === "m68k" ||
+        architecture === "rx"
       ? 0xffffffffn
       : 0xffffffffffffffffn;
 
@@ -95,7 +97,7 @@ export const admitRawBinary = (input: {
   if (!architecture.success)
     return err({
       reason:
-        "raw-binary format requires architecture (x86, x86_64, arm, arm64, 6502, or m68k)",
+        "raw-binary format requires architecture (x86, x86_64, arm, arm64, 6502, m68k, or rx)",
       constraint: "load_selection_rejected",
     });
   if (typeof input.entryPoint !== "string")
@@ -124,6 +126,8 @@ export const admitRawBinary = (input: {
       reason: `raw-binary m68k entry_point ${entry.value.canonical} must be 2-byte aligned`,
       constraint: "load_selection_rejected",
     });
+  // RX instructions are variable length (1 to 8 bytes) and byte-aligned, so
+  // any entry is a possible instruction start.
   const length = validateRawBinaryLength(input.fileBytes);
   if (!length.ok)
     return err({

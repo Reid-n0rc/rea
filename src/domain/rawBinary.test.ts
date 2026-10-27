@@ -155,6 +155,7 @@ describe("raw-binary admission", () => {
       { architecture: undefined, entryPoint: "0x8000000" },
     ],
     ["mismatched family name", { architecture: "68000", entryPoint: "0x1000" }],
+    ["processor model name", { architecture: "rx62t", entryPoint: "0x1000" }],
   ])("classifies a %s as caller input", (_name, selection) => {
     const result = admitRawBinary({ ...selection, fileBytes: 4 });
     expect(result.ok).toBe(false);
@@ -226,6 +227,57 @@ describe("m68k raw-binary admission", () => {
       });
     },
   );
+});
+
+describe("rx raw-binary admission", () => {
+  it("admits byte-aligned rx entries up to the 32-bit address boundary", () => {
+    for (const [entryPoint, fileBytes] of [
+      ["0x0", 2],
+      ["0x1001", 2],
+      ["0xfff80003", 8],
+      ["0xffffffff", 1],
+    ] as const) {
+      const result = admitRawBinary({
+        architecture: "rx",
+        entryPoint,
+        fileBytes,
+      });
+      if (!result.ok) throw new Error(result.error.reason);
+      expect(result.value).toEqual({
+        architecture: "rx",
+        entryPoint,
+        entryPointSource: entryPoint,
+      });
+    }
+  });
+  it.each([
+    ["0x100000000", 1],
+    ["0xffffffff", 2],
+  ])(
+    "rejects an rx mapping at %s with %i bytes that exceeds 32 bits",
+    (entryPoint, fileBytes) => {
+      expect(
+        admitRawBinary({ architecture: "rx", entryPoint, fileBytes }),
+      ).toEqual({
+        ok: false,
+        error: {
+          reason: `raw-binary mapping from ${entryPoint} must fit in the rx address width`,
+          constraint: "load_selection_rejected",
+        },
+      });
+    },
+  );
+  it("lists rx among the families an unknown architecture may select", () => {
+    const result = admitRawBinary({
+      architecture: "rx62t",
+      entryPoint: "0x1000",
+      fileBytes: 2,
+    });
+    if (result.ok) throw new Error("expected caller-input rejection");
+    expect(result.error.reason).toBe(
+      "raw-binary format requires architecture (x86, x86_64, arm, arm64, 6502, m68k, or rx)",
+    );
+  });
 });
 
 describe("raw-binary selection pairing", () => {

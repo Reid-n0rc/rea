@@ -38,12 +38,15 @@ cliTest(
   },
 );
 
-cliTest(
-  "rejects a 6502 image crossing the 16-bit boundary before provider startup",
-  async ({ cli }) => {
-    const root = await createTestTempDirectory("rea-6502-cli-overflow-");
+cliTest.for([
+  ["6502", "16", "a92a60", "0xffff"],
+  ["rx", "32", "0302", "0xffffffff"],
+] as const)(
+  "rejects a %s image crossing the %s-bit boundary before provider startup",
+  async ([architecture, , bytes, entryPoint], { cli }) => {
+    const root = await createTestTempDirectory("rea-raw-cli-overflow-");
     const path = join(root, "image.bin");
-    await writeFile(path, Buffer.from("a92a60", "hex"));
+    await writeFile(path, Buffer.from(bytes, "hex"));
     const result = await cli.run({
       arguments: [
         "inspect",
@@ -51,9 +54,9 @@ cliTest(
         "--target-format",
         "raw-binary",
         "--architecture",
-        "6502",
+        architecture,
         "--entry-point",
-        "0xffff",
+        entryPoint,
         "--provider",
         "ghidra",
         "--json",
@@ -63,7 +66,9 @@ cliTest(
     expect(result.exitCode).toBe(1);
     expect(result.json).toMatchObject({
       code: "invalid_request",
-      details: { reason: expect.stringContaining("6502 address width") },
+      details: {
+        reason: expect.stringContaining(`${architecture} address width`),
+      },
     });
   },
 );

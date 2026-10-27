@@ -71,7 +71,7 @@ const targets: readonly BinaryTarget[] = [
     managed: false,
     executableRole: "application",
   },
-  ...(["x86", "x86_64", "arm", "arm64", "6502", "m68k"] as const).map(
+  ...(["x86", "x86_64", "arm", "arm64", "6502", "m68k", "rx"] as const).map(
     (architecture) => ({
       ...executable,
       format: "raw-binary" as const,
