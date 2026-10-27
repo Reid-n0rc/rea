@@ -129,7 +129,7 @@ describe("Ghidra COM loader", () => {
 });
 
 describe("Ghidra raw-binary loader", () => {
-  it("loads caller-supplied architecture and entry before auto-analysis", () => {
+  it("maps file offset 0 at the base and seeds the separate entry before auto-analysis", () => {
     const arguments_ = ghidraHeadlessArguments({
       projectRoot: "/tmp/project",
       targetPath: "/tmp/ecu.bin",
@@ -141,6 +141,7 @@ describe("Ghidra raw-binary loader", () => {
         languageId: "ARM:LE:32:v7",
         compilerSpecId: "default",
         baseAddr: "0x8000000",
+        entryAddr: "0x8000100",
       },
     });
     expectOptions(arguments_, [
@@ -154,7 +155,9 @@ describe("Ghidra raw-binary loader", () => {
       join("/package/bridge", "ReaGhidraPrepareRaw.java"),
     );
     expect(arguments_[prepare + 2]).toBe("ARM:LE:32:v7");
+    // File offset 0 is mapped at the base; the entry is seeded separately.
     expect(arguments_[prepare + 3]).toBe("0x8000000");
+    expect(arguments_[prepare + 4]).toBe("0x8000100");
     expect(prepare).toBeLessThan(arguments_.indexOf("-postScript"));
     expect(arguments_).toContain("-readOnly");
     expect(arguments_).toContain("-deleteProject");
@@ -243,6 +246,7 @@ describe("Ghidra GameCube DOL loader", () => {
           languageId: "ARM:LE:32:v7",
           compilerSpecId: "default",
           baseAddr: "0x8000000",
+          entryAddr: "0x8000000",
         },
       },
     ],
@@ -341,6 +345,7 @@ describe("Ghidra headless launcher", () => {
           languageId: "x86:LE:32:default",
           compilerSpecId: "default",
           baseAddr: "0x1000",
+          entryAddr: "0x1000",
         },
       },
     ])
@@ -407,6 +412,7 @@ describe("Ghidra configured import language and seeds", () => {
           languageId: "ARM:LE:32:v7",
           compilerSpecId: "default",
           baseAddr: "0x8000000",
+          entryAddr: "0x8000000",
         },
       }),
     ).toThrow(/cannot be combined with a raw-binary import/u);
@@ -586,6 +592,7 @@ describe("Ghidra existing project", () => {
         languageId: "ARM:LE:32:v7",
         compilerSpecId: "default",
         baseAddr: "0x8000000",
+        entryAddr: "0x8000000",
       },
     },
     { languageOverride: { languageId: "x86:LE:32:default" } },

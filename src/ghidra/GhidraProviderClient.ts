@@ -453,6 +453,7 @@ export const createGhidraProviderClient = (input: {
               languageId: rawLanguage.languageId,
               compilerSpecId: rawLanguage.compilerSpecId,
               baseAddr: target.entryPoint,
+              entryAddr: target.entryPoint,
             },
           }),
       ...(target.format === "gamecube-dol"
