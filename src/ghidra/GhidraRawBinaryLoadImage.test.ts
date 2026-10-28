@@ -43,12 +43,44 @@ describe("raw-binary Ghidra language binding", () => {
       "arm64",
       "6502",
       "m68k",
+      "armv8m",
+      "xtensa",
     ] as const)
       expect(
         ghidraRawBinaryLanguageLimitations(
           ghidraRawBinaryLanguage(architecture),
         ),
       ).toEqual([]);
+  });
+  it("maps armv8m to Ghidra's Thumb-only ARMv8-M language and xtensa to the stock Xtensa language", () => {
+    expect(ghidraRawBinaryLanguage("armv8m")).toEqual({
+      languageId: "ARM:LE:32:v8-m",
+      compilerSpecId: "default",
+      defaultAddressSpace: "ram",
+    });
+    expect(ghidraRawBinaryLanguage("xtensa")).toEqual({
+      languageId: "Xtensa:LE:32:default",
+      compilerSpecId: "default",
+      defaultAddressSpace: "ram",
+    });
+  });
+  it("maps xtensa-hifi4 to the generated RT600 HiFi4 language and owes its limitation", () => {
+    const language = ghidraRawBinaryLanguage("xtensa-hifi4");
+    expect(language).toEqual({
+      languageId: "Xtensa:LE:32:rt600hifi4",
+      compilerSpecId: "default",
+      defaultAddressSpace: "ram",
+      communityModule: {
+        name: "Xtensa RT600 HiFi4 (generated)",
+        source:
+          "github.com/Reid-n0rc/FT-710_Firmware tools/xtensa_sleigh_gen.py",
+      },
+    });
+    expect(ghidraRawBinaryLanguageLimitations(language)).toEqual([
+      expect.stringMatching(
+        /^Xtensa:LE:32:rt600hifi4 comes from the community Xtensa RT600 HiFi4 \(generated\) processor module .* not shipped with Ghidra\./u,
+      ),
+    ]);
   });
   it("maps the four admitted families to little-endian generic languages", () => {
     expect(ghidraRawBinaryLanguage("x86")).toEqual({

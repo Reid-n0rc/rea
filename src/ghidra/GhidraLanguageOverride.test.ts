@@ -598,3 +598,83 @@ describe.skipIf(process.platform === "win32")(
     );
   },
 );
+
+// Abbreviated self-written definition with the identity of the generated
+// RT600 HiFi4 language in Ghidra's Xtensa processor.
+const HIFI4_LDEFS = `<?xml version="1.0" encoding="UTF-8"?>
+<language_definitions>
+  <language processor="Xtensa" endian="little" size="32" variant="rt600hifi4"
+            id="Xtensa:LE:32:rt600hifi4">
+    <compiler name="default" spec="xtensa.cspec" id="default"/>
+  </language>
+</language_definitions>
+`;
+
+const hifi4Target: BinaryTarget = {
+  path: "/fixture-hifi4.bin",
+  sha256: "d".repeat(64),
+  kind: "executable",
+  format: "raw-binary",
+  architecture: "xtensa-hifi4",
+  availableArchitectures: ["xtensa-hifi4"],
+  entryPoint: "0x21c360",
+  entryPointSource: "0x0021c360",
+  baseAddress: "0x200000",
+  baseAddressSource: "0x00200000",
+};
+
+describe.skipIf(process.platform === "win32")(
+  "generated xtensa-hifi4 language admission",
+  () => {
+    const provider = (root: string) => {
+      const parsed = parseConfig({ GHIDRA_INSTALL_DIR: root });
+      if (!parsed.ok) throw parsed.error;
+      return new GhidraProvider(parsed.value, silentLogger, {}, host);
+    };
+    const installWith = async (ldefs: string | undefined) => {
+      const root = await createTestTempDirectory("rea-ghidra-hifi4-catalog-");
+      const x86 = join(root, "Ghidra/Processors/x86/data/languages");
+      await mkdir(x86, { recursive: true });
+      await writeFile(join(x86, "x86.ldefs"), X86_LDEFS);
+      if (ldefs !== undefined) {
+        const xtensa = join(root, "Ghidra/Processors/Xtensa/data/languages");
+        await mkdir(xtensa, { recursive: true });
+        await writeFile(join(xtensa, "xtensa_rt600hifi4.ldefs"), ldefs);
+      }
+      return root;
+    };
+
+    it("binds raw xtensa-hifi4 to the installed rt600hifi4 language before import", async () => {
+      const resolved = await provider(
+        await installWith(HIFI4_LDEFS),
+      ).resolveAnalysisProfile(hifi4Target);
+      if (!resolved.ok) throw resolved.error;
+      expect(resolved.value.profile?.parameters).toMatchObject({
+        target_format: "raw-binary",
+        architecture: "xtensa-hifi4",
+        loader: "BinaryLoader",
+        language_id: "Xtensa:LE:32:rt600hifi4",
+        compiler_spec_id: "default",
+        language_catalog: "installed-community-module-v1",
+        entry_point: "0x21c360",
+        base_address: "0x200000",
+      });
+    });
+
+    it("refuses raw xtensa-hifi4 before analysis without the generated language", async () => {
+      const root = await installWith(undefined);
+      const resolved = await provider(root).resolveAnalysisProfile(hifi4Target);
+      if (resolved.ok) throw new Error("expected a missing-language refusal");
+      expect(resolved.error).toMatchObject({
+        _tag: "AnalysisCapabilityUnavailableError",
+        operation: "resolve_analysis_profile",
+      });
+      const { reason } = resolved.error as unknown as { reason: string };
+      expect(reason).toContain(
+        "GHIDRA_LANGUAGE_UNAVAILABLE: Xtensa:LE:32:rt600hifi4 is not defined in the language catalog",
+      );
+      expect(reason).toContain("tools/xtensa_sleigh_gen.py");
+      expect(reason).toContain("REA does not install it");
+    });
+  },
+);

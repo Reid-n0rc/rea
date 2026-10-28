@@ -275,7 +275,7 @@ describe("rx raw-binary admission", () => {
     });
     if (result.ok) throw new Error("expected caller-input rejection");
     expect(result.error.reason).toBe(
-      "raw-binary format requires architecture (x86, x86_64, arm, arm64, 6502, m68k, or rx)",
+      "raw-binary format requires architecture (x86, x86_64, arm, arm64, 6502, m68k, rx, armv8m, xtensa, or xtensa-hifi4)",
     );
   });
 });
@@ -470,4 +470,62 @@ describe("raw-binary base address bounds", () => {
         }),
       ).toBe("base_address applies only with format=raw-binary");
   });
+});
+
+describe("armv8m and xtensa raw-binary admission", () => {
+  it("admits even armv8m entries (Thumb bit cleared) and refuses odd ones", () => {
+    const admitted = admitRawBinary({
+      architecture: "armv8m",
+      entryPoint: "0x080011a8",
+      baseAddress: "0x08000000",
+      fileBytes: 0x652ec,
+    });
+    if (!admitted.ok) throw new Error(admitted.error.reason);
+    expect(admitted.value).toMatchObject({
+      architecture: "armv8m",
+      entryPoint: "0x80011a8",
+      baseAddress: "0x8000000",
+    });
+    expect(
+      admitRawBinary({
+        architecture: "armv8m",
+        entryPoint: "0x080011a9",
+        baseAddress: "0x08000000",
+        fileBytes: 0x652ec,
+      }),
+    ).toEqual({
+      ok: false,
+      error: {
+        reason:
+          "raw-binary armv8m entry_point 0x80011a9 must be 2-byte aligned",
+        constraint: "load_selection_rejected",
+      },
+    });
+  });
+  it.each(["xtensa", "xtensa-hifi4"] as const)(
+    "admits byte-aligned %s entries within 32 bits",
+    (architecture) => {
+      const admitted = admitRawBinary({
+        architecture,
+        entryPoint: "0x21c361",
+        baseAddress: "0x200000",
+        fileBytes: 0x383b4,
+      });
+      if (!admitted.ok) throw new Error(admitted.error.reason);
+      expect(admitted.value.architecture).toBe(architecture);
+      expect(
+        admitRawBinary({
+          architecture,
+          entryPoint: "0xffffffff",
+          fileBytes: 2,
+        }),
+      ).toEqual({
+        ok: false,
+        error: {
+          reason: `raw-binary mapping from 0xffffffff must fit in the ${architecture} address width`,
+          constraint: "load_selection_rejected",
+        },
+      });
+    },
+  );
 });

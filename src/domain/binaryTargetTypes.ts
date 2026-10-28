@@ -15,6 +15,9 @@ export const BINARY_ARCHITECTURES = [
   "m68k",
   "hexagon",
   "rx",
+  "armv8m",
+  "xtensa",
+  "xtensa-hifi4",
 ] as const;
 export type BinaryArchitecture = (typeof BINARY_ARCHITECTURES)[number];
 
@@ -26,6 +29,9 @@ export const RAW_ONLY_ARCHITECTURES = [
   "6502",
   "m68k",
   "rx",
+  "armv8m",
+  "xtensa",
+  "xtensa-hifi4",
 ] as const satisfies readonly BinaryArchitecture[];
 export type RawOnlyArchitecture = (typeof RAW_ONLY_ARCHITECTURES)[number];
 

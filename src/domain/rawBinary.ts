@@ -17,6 +17,9 @@ export const BINARY_ARCHITECTURES = [
   "6502",
   "m68k",
   "rx",
+  "armv8m",
+  "xtensa",
+  "xtensa-hifi4",
 ] as const satisfies readonly BinaryArchitecture[];
 
 /** Provider-neutral CPU family for a caller-supplied raw-binary load. */
@@ -100,7 +103,10 @@ const addressWidth = (architecture: BinaryArchitecture): bigint =>
     : architecture === "x86" ||
         architecture === "arm" ||
         architecture === "m68k" ||
-        architecture === "rx"
+        architecture === "rx" ||
+        architecture === "armv8m" ||
+        architecture === "xtensa" ||
+        architecture === "xtensa-hifi4"
       ? 0xffffffffn
       : 0xffffffffffffffffn;
 
@@ -108,13 +114,15 @@ const addressWidth = (architecture: BinaryArchitecture): bigint =>
  * Instruction alignment a family requires of its entry and of the mapped
  * image start. 68000-family instruction words are fetched from even addresses.
  */
-// 68000-family instruction words are fetched from even addresses. RX
-// instructions are variable length (1 to 8 bytes) and byte-aligned, so any
-// address is a possible instruction start.
+// 68000-family instruction words are fetched from even addresses, and so are
+// ARMv8-M Thumb halfwords; a Cortex-M vector holds the address with bit 0 set,
+// which the caller clears. RX instructions are variable length (1 to 8 bytes)
+// and byte-aligned. Xtensa instructions are 2 or 3 bytes (with FLIX bundles of
+// 4 to 16 bytes) and byte-aligned, so any address is a possible start.
 const instructionAlignment = (architecture: BinaryArchitecture): bigint =>
   architecture === "arm" || architecture === "arm64"
     ? 4n
-    : architecture === "m68k"
+    : architecture === "m68k" || architecture === "armv8m"
       ? 2n
       : 1n;
 
@@ -155,7 +163,7 @@ export const admitRawBinary = (input: {
   const architecture = binaryArchitectureSchema.safeParse(input.architecture);
   if (!architecture.success)
     return selectionRejected(
-      "raw-binary format requires architecture (x86, x86_64, arm, arm64, 6502, m68k, or rx)",
+      "raw-binary format requires architecture (x86, x86_64, arm, arm64, 6502, m68k, rx, armv8m, xtensa, or xtensa-hifi4)",
     );
   if (typeof input.entryPoint !== "string")
     return selectionRejected(

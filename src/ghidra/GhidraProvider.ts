@@ -99,6 +99,9 @@ const SUPPORTED_ARCHITECTURES = new Set([
   "m68k",
   "hexagon",
   "rx",
+  "armv8m",
+  "xtensa",
+  "xtensa-hifi4",
 ]);
 
 /** Ghidra candidate backed by an isolated ephemeral headless Program session. */
@@ -298,7 +301,7 @@ export class GhidraProvider implements AnalysisProviderCandidate {
         status: "unsupported",
         code: "architecture_unsupported",
         reason:
-          "Ghidra v1 requires a supported x86, x86_64, arm, arm64, MIPS, RISC-V, raw 6502, raw m68k, or raw rx target profile.",
+          "Ghidra v1 requires a supported x86, x86_64, arm, arm64, MIPS, RISC-V, raw 6502, raw m68k, raw rx, raw armv8m, raw xtensa, or raw xtensa-hifi4 target profile.",
         diagnostics,
       };
     return {

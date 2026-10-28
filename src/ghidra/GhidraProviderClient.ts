@@ -370,7 +370,7 @@ export const createGhidraProviderClient = (input: {
     ...(target.format === "raw-binary"
       ? [
           "Headerless raw-binary analysis uses the caller-supplied architecture and entry address; file offset 0 is mapped at that address. Headers are not discovered from file bytes.",
-          "Little-endian generic Ghidra languages are used for x86, x86_64, arm, arm64, and NMOS 6502; m68k uses the big-endian 68000 default language, which decodes the 68040 superset; rx uses the little-endian rx62t:LE:32:default language of a caller-installed community module. Big-endian ARM, Thumb-only, Cortex-M, 65C02, 65816, separate 68020/68030/CPU32/ColdFire variants, RXv3, and other processor variants are unsupported in this increment.",
+          "Little-endian generic Ghidra languages are used for x86, x86_64, arm, arm64, and NMOS 6502; m68k uses the big-endian 68000 default language, which decodes the 68040 superset; rx uses the little-endian rx62t:LE:32:default language of a caller-installed community module; armv8m uses the Thumb-only ARM:LE:32:v8-m language (Cortex-M); xtensa uses the stock little-endian Xtensa:LE:32:default language, which does not decode FLIX bundles or HiFi operations; xtensa-hifi4 uses the caller-installed Xtensa:LE:32:rt600hifi4 language generated for the NXP RT600 HiFi4 DSP. Big-endian ARM, ARMv6-M/ARMv7-M as separate variants, big-endian Xtensa, other Xtensa configurations, 65C02, 65816, separate 68020/68030/CPU32/ColdFire variants, RXv3, and other processor variants are unsupported in this increment.",
           "Static analysis does not emulate reset vectors, memory-mapped I/O, or firmware boot sequences.",
         ]
       : []),

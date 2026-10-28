@@ -24,12 +24,24 @@ const RX_PROCESSOR_MODULE: GhidraCommunityProcessorModule = {
 };
 
 /**
+ * The RT600 HiFi4 language is generated from Cadence's MIT-licensed
+ * xtensa-modules.c for the RT600 DSP configuration (FLIX bundles included) by
+ * the FT-710 firmware project and installed into Ghidra's Xtensa processor.
+ */
+const XTENSA_HIFI4_PROCESSOR_MODULE: GhidraCommunityProcessorModule = {
+  name: "Xtensa RT600 HiFi4 (generated)",
+  source: "github.com/Reid-n0rc/FT-710_Firmware tools/xtensa_sleigh_gen.py",
+};
+
+/**
  * Map caller-visible CPU families to generic Ghidra languages with a
  * supported generic compiler specification. These are analysis conventions,
  * not evidence of the target's original compiler. Each family has one fixed
  * byte order: m68k is big-endian and the others are little-endian. Big-endian
  * ARM, Thumb-only, Cortex-M, and other processor variants are out of scope.
- * rx binds a community processor module rather than a stock language.
+ * rx and xtensa-hifi4 bind caller-installed processor modules rather than
+ * stock languages. armv8m is Ghidra's Thumb-only ARMv8-M language, whose
+ * processor spec starts disassembly in Thumb mode.
  */
 export const ghidraRawBinaryLanguage = (
   architecture: RawBinaryAdmission["architecture"],
@@ -75,6 +87,27 @@ export const ghidraRawBinaryLanguage = (
         compilerSpecId: "default",
         defaultAddressSpace: "ram",
         communityModule: RX_PROCESSOR_MODULE,
+      };
+    case "armv8m":
+      return {
+        languageId: "ARM:LE:32:v8-m",
+        compilerSpecId: "default",
+        defaultAddressSpace: "ram",
+      };
+    case "xtensa":
+      return {
+        languageId: "Xtensa:LE:32:default",
+        compilerSpecId: "default",
+        defaultAddressSpace: "ram",
+      };
+    case "xtensa-hifi4":
+      // Generated for the NXP RT600 HiFi4 DSP configuration: the base ISA plus
+      // its FLIX formats and HiFi4 operations, in the stock Xtensa processor.
+      return {
+        languageId: "Xtensa:LE:32:rt600hifi4",
+        compilerSpecId: "default",
+        defaultAddressSpace: "ram",
+        communityModule: XTENSA_HIFI4_PROCESSOR_MODULE,
       };
     case "arm64":
       return {
