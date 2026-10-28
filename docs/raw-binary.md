@@ -107,7 +107,14 @@ It also requires the source-backed block to be initialized, loaded, and
 non-overlay in the bound language's default address space. Contradictory mapping
 observations are retained with `mismatch`, even when the source hashes agree.
 
-Hopper and IDA refuse raw-binary targets. Windows Ghidra P0 admits native PE
+Hopper and IDA refuse raw-binary targets, and there is no rizin analysis
+provider, so `open_binary` with `format: "raw-binary"` is served by Ghidra only
+(`provider_id: "rizin"` is refused as an unknown provider). For a second
+decoder, run one-shot rizin commands on the same file with the matching
+decoder and load address, for example
+`rea execute-rizin-command ./display.bin 'aaa; afl' --arch arm --bits 32 --base-address 0x20100000`
+(`--arch rx`, `xtensa` and others name rizin plugins, not REA families); see
+[reverse-engineering tools](reverse-engineering-tools.md). Windows Ghidra P0 admits native PE
 applications/DLLs and explicitly selected raw 6502 images. Other raw CPU families
 remain outside the Windows boundary. Native path admission, private DACLs, Job
 Object ownership, immutable snapshots, and the no-mutation policy still apply.
