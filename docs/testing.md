@@ -1461,6 +1461,18 @@ past `0xffffffff` without replacing the active session, and runtime cleanup.
 Windows Ghidra P0 does not admit m68k, so this is not a Windows lane. The lane
 has been run on macOS; Linux has not been exercised.
 
+`npm run verify:ghidra:firmware [-- armv8m|xtensa|xtensa-hifi4 ...]` runs the
+raw firmware lanes through the compiled stdio MCP server and CLI: for each lane
+it opens a source-owned fixture with a separate `base_address`, checks the
+verified load image, language and compiler spec, exact bytes, the entry and leaf
+procedures, the entry instruction, the call to the leaf, the leaf's constant in
+pseudocode, CLI/MCP decompilation parity, unchanged source bytes and runtime
+cleanup. `armv8m` uses a hand-encoded Thumb-2 image at `0x8000000` (push, bl,
+adds, pop; leaf movs/bx); `xtensa` and `xtensa-hifi4` share a call0-ABI image
+(addi/s32i/call0/l32i/ret; leaf movi/ret) assembled once with the Zephyr SDK
+0.17.0 `xtensa-nxp_rt600_adsp_zephyr-elf-as` and kept as annotated hex. A lane
+whose language is absent from the installation catalog prints `skipped:`.
+
 `npm run verify:ghidra:rx` needs no assembler: its 56-byte little-endian Renesas
 RX fixture is source-owned annotated hex in the verifier. File offset 0 maps at
 `base_address` `0xfff00000`; leading data (a word table and an ASCII marker)

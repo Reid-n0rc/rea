@@ -591,12 +591,12 @@ Use `inspect_byte_entropy` to triage high- and low-entropy ranges before extract
 
 For other headerless images (embedded firmware without ELF/Mach-O/PE/MZ
 headers), open with `format: "raw-binary"`, `architecture` (`x86`, `x86_64`,
-`arm`, `arm64`, `6502`, `m68k`, or `rx`), and `entry_point` (`0x` hex). File offset 0 is mapped at
+`arm`, `arm64`, `6502`, `m68k`, `rx`, `armv8m`, `xtensa`, or `xtensa-hifi4`), and `entry_point` (`0x` hex). File offset 0 is mapped at
 that address unless `base_address` (`0x` hex) is given; then file offset 0 maps
 at the base and `entry_point` must lie inside the image. Use a base for
 firmware that starts with data or a vector table. Hopper and IDA refuse this
 interpretation; Ghidra uses `BinaryLoader` with a fixed language per family:
-big-endian for `m68k`, little-endian otherwise. Big-endian ARM, Thumb-only, and Cortex-M variants are unsupported.
+big-endian for `m68k`, little-endian otherwise. Big-endian ARM is unsupported; `arm` is ARMv7 starting in ARM state, `armv8m` is Cortex-M Thumb (`ARM:LE:32:v8-m`, even entry: clear the vector's Thumb bit).
 `6502` selects NMOS 6502; the entry and complete file mapping must fit within
 `0x0000..0xffff`. 65C02, 65816, cartridge containers, bank switching, and mapper
 semantics are unsupported. `m68k` requires an even entry and decodes the 68040
@@ -604,7 +604,7 @@ superset of the 68000 family; Amiga/Atari containers and vector-table entry
 discovery are unsupported. `rx` (Renesas RXv1/RXv2) binds `rx62t:LE:32:default`
 from a community SLEIGH module that must be installed in the Ghidra catalog;
 REA refuses the target before analysis when it is absent and marks results as
-unverified-language. Windows Ghidra P0 admits raw images only for `6502`. See [raw binary guide](https://github.com/morluto/rea/blob/main/docs/raw-binary.md).
+unverified-language. `xtensa` is stock `Xtensa:LE:32:default` (no FLIX/HiFi decoding); `xtensa-hifi4` binds the generated `Xtensa:LE:32:rt600hifi4` (NXP RT600 HiFi4 DSP, FLIX bundles) and is admitted, like `rx`, only when installed. Windows Ghidra P0 admits raw images only for `6502`. See [raw binary guide](https://github.com/morluto/rea/blob/main/docs/raw-binary.md).
 
 ### Function annotations in Ghidra
 

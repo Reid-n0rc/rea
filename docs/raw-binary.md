@@ -29,15 +29,18 @@ rea inspect-native-load-image /absolute/path/to/ecu.bin --target-format raw-bina
 }
 ```
 
-`architecture` is one of `x86`, `x86_64`, `arm`, `arm64`, `6502`, `m68k`, or `rx`.
+`architecture` is one of `x86`, `x86_64`, `arm`, `arm64`, `6502`, `m68k`, `rx`,
+`armv8m`, `xtensa`, or `xtensa-hifi4`.
 `entry_point` is a hexadecimal address of the form `0x…`. Without
 `base_address`, the complete file is mapped starting at that address, and
 Ghidra seeds an `entry` function there before auto-analysis.
-ARM and AArch64 entries must be 4-byte aligned; m68k entries must be 2-byte
-aligned; x86, 6502, and rx entries may be byte-aligned.
+ARM and AArch64 entries must be 4-byte aligned; m68k and armv8m entries must be
+2-byte aligned; x86, 6502, rx, xtensa and xtensa-hifi4 entries may be
+byte-aligned.
 For 6502, the entry and complete mapped file must fit within `0x0000..0xffff`;
 images that cross the 16-bit boundary are rejected before provider startup.
-For m68k and rx, the mapping must fit within `0x0..0xffffffff`.
+For m68k, rx, armv8m, xtensa and xtensa-hifi4, the mapping must fit within
+`0x0..0xffffffff`.
 `open_binary` and an open `binary_session` return the canonical `entry_point`
 for raw targets so callers can verify the selected mapping directly.
 
@@ -65,18 +68,21 @@ Omitted `format` keeps header-based detection; architecture, entry, and base
 without `format=raw-binary` are rejected.
 
 Ghidra imports a private snapshot with `BinaryLoader` and these languages and
-compiler specifications. All but `rx` ship with Ghidra. Each family has one
+compiler specifications. All but `rx` and `xtensa-hifi4` ship with Ghidra. Each family has one
 fixed byte order: m68k is big-endian and the others are little-endian.
 
-| architecture | language_id           | compiler_spec_id |
-| ------------ | --------------------- | ---------------- |
-| x86          | `x86:LE:32:default`   | `gcc`            |
-| x86_64       | `x86:LE:64:default`   | `gcc`            |
-| arm          | `ARM:LE:32:v7`        | `default`        |
-| arm64        | `AARCH64:LE:64:v8A`   | `default`        |
-| 6502         | `6502:LE:16:default`  | `default`        |
-| m68k         | `68000:BE:32:default` | `default`        |
-| rx           | `rx62t:LE:32:default` | `default`        |
+| architecture | language_id               | compiler_spec_id |
+| ------------ | ------------------------- | ---------------- |
+| x86          | `x86:LE:32:default`       | `gcc`            |
+| x86_64       | `x86:LE:64:default`       | `gcc`            |
+| arm          | `ARM:LE:32:v7`            | `default`        |
+| arm64        | `AARCH64:LE:64:v8A`       | `default`        |
+| 6502         | `6502:LE:16:default`      | `default`        |
+| m68k         | `68000:BE:32:default`     | `default`        |
+| rx           | `rx62t:LE:32:default`     | `default`        |
+| armv8m       | `ARM:LE:32:v8-m`          | `default`        |
+| xtensa       | `Xtensa:LE:32:default`    | `default`        |
+| xtensa-hifi4 | `Xtensa:LE:32:rt600hifi4` | `default`        |
 
 Compiler specifications select analysis conventions; they do not identify the
 original compiler or ABI of a headerless target. Ghidra's x86 languages do not
@@ -210,13 +216,63 @@ annotated hex in the verifier, with data at `base_address` and the entry inside
 the image. See [testing](testing.md) for its checks. It has been run with Ghidra
 12.1.4 on Linux x64; macOS has not been exercised.
 
+## ARMv8-M (Cortex-M, Thumb)
+
+```bash
+rea inspect /absolute/path/to/flash.bin --target-format raw-binary --architecture armv8m --base-address 0x8000000 --entry-point 0x80011a8 --provider ghidra --json
+```
+
+`armv8m` binds Ghidra's `ARM:LE:32:v8-m` language, whose `ARMCortex.pspec`
+starts disassembly in Thumb mode (`TMode=1`); it decodes ARMv8-M Mainline and
+Baseline and, in practice, ARMv7-M/ARMv6-M Thumb code. The `arm` family stays
+`ARM:LE:32:v7` (ARM state at the entry, 4-byte aligned) for A- and R-profile
+images. A Cortex-M vector table stores handler addresses with bit 0 set; clear
+it for `entry_point` (2-byte alignment is enforced, so `0x80011a9` is refused).
+REA does not read the vector table, copy `.data`/RAM code, or map SRAM, the
+system region or peripherals; code copied to RAM by the reset handler needs its
+own raw open at its run address.
+
+## Xtensa and the RT600 HiFi4 DSP
+
+```bash
+rea inspect /absolute/path/to/dsp_text.bin --target-format raw-binary --architecture xtensa --base-address 0x200000 --entry-point 0x21c360 --provider ghidra --json
+rea inspect /absolute/path/to/dsp_text.bin --target-format raw-binary --architecture xtensa-hifi4 --base-address 0x200000 --entry-point 0x21c360 --provider ghidra --json
+```
+
+`xtensa` binds Ghidra's stock little-endian `Xtensa:LE:32:default`, which
+decodes the base and common optional instructions but not FLIX bundles or
+HiFi operations: code built for a HiFi DSP decompiles to `flix()` and
+`halt_baddata()` at the first bundle. `xtensa-hifi4` binds
+`Xtensa:LE:32:rt600hifi4`, a language generated for the NXP RT600 HiFi4 DSP
+configuration (base ISA, FLIX formats, HiFi4/FPU operations) from Cadence's
+MIT-licensed `xtensa-modules.c` by `tools/xtensa_sleigh_gen.py` in
+github.com/Reid-n0rc/FT-710_Firmware. It is not shipped with Ghidra: install
+its `xtensa_rt600hifi4.*` files into `Ghidra/Processors/Xtensa/data/languages/`
+and compile the slaspec with that installation's `support/sleigh`. Like `rx`,
+it is admitted only when the installation catalog defines it with a `default`
+compiler specification, refused with `capability_unavailable`
+(`GHIDRA_LANGUAGE_UNAVAILABLE`) otherwise, and recorded with
+`language_catalog: installed-community-module-v1` and an unverified-language
+limitation. Other Xtensa configurations (other HiFi versions, ESP32, LX7
+cores with different TIE) and big-endian Xtensa are unsupported. Xtensa
+instructions are 2 or 3 bytes and FLIX bundles 4 to 16, so entries may be
+byte-aligned. Windowed-ABI calls, L32R literal pools and the vector base are
+decoded as the language defines them; REA maps one file, so TCM and SRAM
+images of one DSP need separate opens.
+
+`npm run verify:ghidra:firmware` checks `armv8m`, `xtensa` and `xtensa-hifi4`
+with source-owned fixtures (a hand-encoded Thumb-2 image, and an Xtensa call0
+image assembled once with the Zephyr SDK and embedded as annotated hex);
+`-- xtensa` and the other lane names select lanes. A lane whose language is not
+installed prints `skipped:`. Checked with Ghidra 12.1.4 on Linux x64.
+
 ## Limitations
 
 - Headers are not discovered from file bytes. REA does not guess load
   addresses, vector tables, or memory maps; `base_address` and `entry_point`
   are caller-supplied.
-- Big-endian ARM, Thumb-only, Cortex-M, and other Ghidra processor variants are
-  unsupported. m68k is the only big-endian family.
+- Big-endian ARM, separate ARMv6-M/ARMv7-M languages (use `armv8m`), and other
+  Ghidra processor variants are unsupported. m68k is the only big-endian family.
 - Reset vectors, memory-mapped I/O, and firmware boot sequences are not
   emulated.
 - Independent load-image verification covers source identity, mapped file
