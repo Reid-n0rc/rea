@@ -266,6 +266,39 @@ image assembled once with the Zephyr SDK and embedded as annotated hex);
 `-- xtensa` and the other lane names select lanes. A lane whose language is not
 installed prints `skipped:`. Checked with Ghidra 12.1.4 on Linux x64.
 
+## Read-only ranges
+
+```bash
+REA_GHIDRA_RAW_READONLY_RANGES=0x200000-0x206fff \
+  rea decompile /absolute/path/to/dsp_text.bin 0x22c5b0 --target-format raw-binary --architecture xtensa-hifi4 --base-address 0x200000 --entry-point 0x21c360 --provider ghidra --json
+```
+
+BinaryLoader maps the whole file as one writable block, so Ghidra's
+decompiler does not fold values read from it: literal pools, `.rodata`
+constants and switch tables stay `DAT_` loads, and jump tables whose bounds or
+targets come from there may not be recovered. `REA_GHIDRA_RAW_READONLY_RANGES`
+lists comma-separated, inclusive `0xstart-0xend` load-address ranges that the
+raw pre-script splits from the file block and marks non-writable before
+auto-analysis. Ranges are sorted, must not overlap (at most 64), and must lie
+inside the mapped image, or profile resolution fails with a
+`ConfigurationError` naming the setting. The canonical ranges are committed as
+`readonly_ranges` in the analysis profile (a profile without them is unchanged),
+and a session whose committed ranges differ from the setting refuses to open.
+The setting is process-wide and applies only to raw-binary imports; set it per
+CLI invocation, or restart the MCP server to change it.
+
+`inspect_native_load_image` then attests the contiguous pieces the ranges
+select instead of one mapping: each piece's addresses, file offset, length and
+digest, and `writable: false` for each read-only piece, with a limitation
+naming the ranges. Read-only is the caller's assertion about the firmware, not
+a fact recovered from the image; a range that the program writes at run time
+yields wrong constants. Uninitialized RAM or peripheral blocks are not added.
+
+`npm run verify:ghidra:firmware -- armv8m-readonly` checks this with a Thumb
+fixture whose entry loads a word from a table through a literal: with the
+literal and table read-only, the entry decompiles to `return 0x11223344;`,
+and the same import without the setting does not fold it.
+
 ## Limitations
 
 - Headers are not discovered from file bytes. REA does not guess load

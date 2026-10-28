@@ -15,6 +15,10 @@ import {
   attestGhidraRawBinaryLoadImage,
 } from "./GhidraLoadImageValues.js";
 import { attestGhidraDolLoadImage } from "./GhidraDolLoadImage.js";
+import {
+  ghidraRawReadonlyPieces,
+  parseGhidraRawReadonlyRange,
+} from "../config/ghidraRawReadonlyRanges.js";
 import type { GhidraLanguageOverride } from "../config/ghidraLanguageOverride.js";
 import type { NativeAotPeResult } from "../domain/native/nativeAotPe.js";
 import type { GhidraClient } from "./GhidraClient.js";
@@ -37,6 +41,8 @@ type NativeLoadImageAttestationInput = {
   readonly nativeAotResult?: NativeAotPeResult | undefined;
   /** Import language committed by the profile; DOL attestation expects it. */
   readonly languageOverride?: GhidraLanguageOverride | undefined;
+  /** Raw-binary read-only ranges committed by the profile. */
+  readonly rawReadonlyRanges?: readonly string[] | undefined;
   readonly signal?: AbortSignal | undefined;
 };
 
@@ -187,10 +193,40 @@ const compareLoadImage = async (
       );
     const snapshot = await client.hashTargetSnapshot(signal);
     if (!snapshot.ok) return err(sourceFailure(snapshot.error));
+    const readonlyRanges = input.rawReadonlyRanges;
+    let rangeSha256: readonly string[] | undefined;
+    if (readonlyRanges !== undefined && readonlyRanges.length > 0) {
+      if (client.hashTargetSnapshotRanges === undefined)
+        return err(
+          comparisonFailure(
+            input,
+            "The Ghidra client does not expose its immutable target snapshot ranges for raw-binary read-only verification.",
+          ),
+        );
+      const pieces = ghidraRawReadonlyFilePieces(
+        target,
+        snapshot.value.bytes,
+        readonlyRanges,
+      );
+      if (pieces === undefined)
+        return err(
+          comparisonFailure(
+            input,
+            "The committed raw-binary read-only ranges are not canonical ranges inside the image.",
+          ),
+        );
+      const hashed = await client.hashTargetSnapshotRanges(pieces, signal);
+      if (!hashed.ok) return err(sourceFailure(hashed.error));
+      rangeSha256 = hashed.value.rangeSha256;
+    }
     const attested = attestGhidraRawBinaryLoadImage(
-      snapshot.value,
+      {
+        ...snapshot.value,
+        ...(rangeSha256 === undefined ? {} : { rangeSha256 }),
+      },
       target,
       observations,
+      readonlyRanges,
     );
     return attested.ok
       ? attested
@@ -229,4 +265,29 @@ const compareLoadImage = async (
     observations,
   );
   return attested.ok ? attested : err(comparisonFailure(input, attested.error));
+};
+
+/** File-offset ranges (end exclusive) of the pieces the read-only ranges select. */
+const ghidraRawReadonlyFilePieces = (
+  target: Extract<BinaryTarget, { format: "raw-binary" }>,
+  bytes: number,
+  readonlyRanges: readonly string[],
+): { readonly start: number; readonly end: number }[] | undefined => {
+  const base = BigInt(target.baseAddress ?? target.entryPoint);
+  const last = base + BigInt(bytes) - 1n;
+  const ranges = readonlyRanges.map(parseGhidraRawReadonlyRange);
+  if (
+    ranges.some(
+      (range) => range === undefined || range.start < base || range.end > last,
+    )
+  )
+    return undefined;
+  return ghidraRawReadonlyPieces(
+    base,
+    last,
+    ranges.filter((range) => range !== undefined),
+  ).map((piece) => ({
+    start: Number(piece.start - base),
+    end: Number(piece.end - base) + 1,
+  }));
 };

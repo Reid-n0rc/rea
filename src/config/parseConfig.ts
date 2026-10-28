@@ -154,6 +154,9 @@ export const parseConfig = (
     ...(env.REA_GHIDRA_DISABLED_ANALYZERS === undefined
       ? {}
       : { ghidraDisabledAnalyzers: env.REA_GHIDRA_DISABLED_ANALYZERS }),
+    ...(env.REA_GHIDRA_RAW_READONLY_RANGES === undefined
+      ? {}
+      : { ghidraRawReadonlyRanges: env.REA_GHIDRA_RAW_READONLY_RANGES }),
     ...(env.REA_GHIDRA_NATIVEAOT_JAR === undefined
       ? {}
       : { ghidraNativeAotJar: env.REA_GHIDRA_NATIVEAOT_JAR }),

@@ -1,3 +1,5 @@
+import { stat } from "node:fs/promises";
+
 import type { ArtifactResourceScope } from "../artifacts/ArtifactResourceScope.js";
 import type {
   AnalysisProfileResolution,
@@ -7,6 +9,7 @@ import { createFunctionCoordinateContext } from "../domain/native/functionCoordi
 import type { JsonValue } from "../domain/jsonValue.js";
 import { createAnalysisProfile } from "../domain/analysisProfile.js";
 import type { GhidraLanguageOverride } from "../config/ghidraLanguageOverride.js";
+import { parseGhidraRawReadonlyRange } from "../config/ghidraRawReadonlyRanges.js";
 import type { BinaryTarget } from "../domain/binaryTargetTypes.js";
 import {
   AnalysisCancelledError,
@@ -139,6 +142,7 @@ export const resolveGhidraAnalysisProfile = async (
   signal?: AbortSignal,
   languageOverride?: GhidraLanguageOverride,
   disabledAnalyzers?: readonly string[],
+  rawReadonlyRanges?: readonly string[],
 ): Promise<Result<AnalysisProfileResolution, AnalysisError>> => {
   if (signal?.aborted === true)
     return Promise.resolve(
@@ -254,6 +258,11 @@ export const resolveGhidraAnalysisProfile = async (
       );
       if (refused !== null) return err(refused);
     }
+    const readonlyRanges = await admitRawReadonlyRanges(
+      target,
+      rawReadonlyRanges,
+    );
+    if (!readonlyRanges.ok) return readonlyRanges;
     return Promise.resolve(
       ok({
         profile: createProfile({
@@ -272,6 +281,10 @@ export const resolveGhidraAnalysisProfile = async (
             ? {}
             : { base_address: target.baseAddress }),
           entry_seed: "external-entry-and-function-before-analysis-v1",
+          // Omitted unless REA_GHIDRA_RAW_READONLY_RANGES selects ranges.
+          ...(readonlyRanges.value === undefined
+            ? {}
+            : { readonly_ranges: [...readonlyRanges.value] }),
           ...analyzerParameters,
         }),
       }),
@@ -461,6 +474,65 @@ export const ghidraProfileDisabledAnalyzers = (
     ? (disabled as readonly string[])
     : undefined;
 };
+
+/** Read-only raw-binary ranges committed by a profile, in canonical spelling. */
+export const ghidraProfileRawReadonlyRanges = (
+  parameters: Readonly<Record<string, unknown>>,
+): readonly string[] | undefined => {
+  const ranges = parameters.readonly_ranges;
+  if (!Array.isArray(ranges)) return undefined;
+  return ranges.every(
+    (range) =>
+      typeof range === "string" &&
+      parseGhidraRawReadonlyRange(range) !== undefined,
+  )
+    ? (ranges as readonly string[])
+    : undefined;
+};
+
+/**
+ * Admit the configured read-only ranges for one raw-binary target: every
+ * range must lie inside the mapped file image, so a range cannot silently
+ * select bytes the import does not have.
+ */
+const admitRawReadonlyRanges = async (
+  target: Extract<BinaryTarget, { format: "raw-binary" }>,
+  ranges: readonly string[] | undefined,
+): Promise<Result<readonly string[] | undefined, AnalysisError>> => {
+  if (ranges === undefined || ranges.length === 0) return ok(undefined);
+  let size: number;
+  try {
+    size = (await stat(target.path)).size;
+  } catch (cause: unknown) {
+    return err(
+      ghidraFileFailure(cause, "resolve_analysis_profile", {
+        setting: "REA_GHIDRA_RAW_READONLY_RANGES",
+        path: target.path,
+      }),
+    );
+  }
+  const base = BigInt(target.baseAddress ?? target.entryPoint);
+  const last = base + BigInt(size) - 1n;
+  const outside = ranges.filter((text) => {
+    const range = parseGhidraRawReadonlyRange(text);
+    return range === undefined || range.start < base || range.end > last;
+  });
+  if (outside.length > 0) {
+    const constraint = `${outside.join(", ")} must lie inside the mapped raw-binary image 0x${base.toString(16)}-0x${last.toString(16)}`;
+    return err(
+      new ConfigurationError(constraint, {
+        settings: [{ setting: "REA_GHIDRA_RAW_READONLY_RANGES", constraint }],
+      }),
+    );
+  }
+  return ok(ranges);
+};
+
+/** Whether a committed profile and the active configuration select the same read-only ranges. */
+export const sameGhidraRawReadonlyRanges = (
+  left: readonly string[] | undefined,
+  right: readonly string[] | undefined,
+): boolean => sameGhidraDisabledAnalyzers(left, right);
 
 /** Whether a committed profile and the active configuration disable the same analyzers. */
 export const sameGhidraDisabledAnalyzers = (

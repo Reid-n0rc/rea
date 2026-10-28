@@ -1,3 +1,6 @@
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import { parseConfig } from "../config/parseConfig.js";
@@ -103,5 +106,56 @@ describe("raw-binary analysis profile digest", () => {
     expect(
       based.value.profile?.parameters.function_coordinate_context,
     ).not.toEqual(plain.value.profile?.parameters.function_coordinate_context);
+  });
+
+  it("commits REA_GHIDRA_RAW_READONLY_RANGES inside the image and refuses ranges outside it", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "rea-raw-readonly-"));
+    try {
+      const path = join(directory, "dsp.bin");
+      await writeFile(path, Buffer.alloc(0x100));
+      const target = {
+        ...raw("x86", "0x1080", "0x1000"),
+        path,
+      } as BinaryTarget;
+      const plain = await new GhidraProvider(
+        configFor({}),
+        silentLogger,
+        {},
+        host,
+      ).resolveAnalysisProfile(target);
+      const ranged = await new GhidraProvider(
+        configFor({
+          REA_GHIDRA_RAW_READONLY_RANGES: "0x10C0-0x10ff, 0x1000-0x103F",
+        }),
+        silentLogger,
+        {},
+        host,
+      ).resolveAnalysisProfile(target);
+      if (!plain.ok || !ranged.ok) throw new Error("expected raw profiles");
+      expect(plain.value.profile?.parameters).not.toHaveProperty(
+        "readonly_ranges",
+      );
+      expect(ranged.value.profile?.parameters).toMatchObject({
+        base_address: "0x1000",
+        readonly_ranges: ["0x1000-0x103f", "0x10c0-0x10ff"],
+      });
+      expect(ranged.value.profile?.digest).not.toBe(
+        plain.value.profile?.digest,
+      );
+
+      const outside = await new GhidraProvider(
+        configFor({ REA_GHIDRA_RAW_READONLY_RANGES: "0x10f0-0x1100" }),
+        silentLogger,
+        {},
+        host,
+      ).resolveAnalysisProfile(target);
+      expect(outside.ok).toBe(false);
+      if (outside.ok) return;
+      expect(outside.error.message).toContain(
+        "0x10f0-0x1100 must lie inside the mapped raw-binary image 0x1000-0x10ff",
+      );
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
   });
 });

@@ -525,3 +525,118 @@ describe("raw-binary load images with a separate base address", () => {
     });
   });
 });
+
+describe("raw-binary load images with read-only ranges", () => {
+  const sha = (bytes: Buffer) =>
+    createHash("sha256").update(bytes).digest("hex");
+  const split = () => {
+    const fixture = fixtureRawBinaryLoadImage();
+    const bytes = Buffer.from("1eff2fe1", "hex");
+    const [mapping] = fixture.observation.mappings;
+    if (mapping === undefined) throw new Error("fixture mapping");
+    const head = bytes.subarray(0, 2);
+    const tail = bytes.subarray(2);
+    return {
+      ...fixture,
+      snapshot: { ...fixture.snapshot, rangeSha256: [sha(head), sha(tail)] },
+      observation: {
+        ...fixture.observation,
+        mappings: [
+          {
+            ...mapping,
+            end: "0x8000001",
+            length: 2,
+            writable: false,
+            sha256: sha(head),
+          },
+          {
+            ...mapping,
+            block: "ram.split",
+            start: "0x8000002",
+            end: "0x8000003",
+            length: 2,
+            file_offset: 2,
+            writable: true,
+            sha256: sha(tail),
+          },
+        ],
+      },
+    };
+  };
+
+  it("verifies the contiguous pieces, their digests and the read-only permission", () => {
+    const { snapshot, target, observation } = split();
+    const result = attestGhidraRawBinaryLoadImage(
+      snapshot,
+      target,
+      observation,
+      ["0x8000000-0x8000001"],
+    );
+    if (!result.ok) throw new Error(result.error);
+    expect(result.value.status).toBe("verified");
+    expect(result.value.checks).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ name: "mapping_count", expected: 2 }),
+        expect.objectContaining({
+          name: "mapping[0].writable",
+          expected: false,
+          matched: true,
+        }),
+        expect.objectContaining({
+          name: "mapping[1].file_offset",
+          expected: 2,
+          matched: true,
+        }),
+      ]),
+    );
+    expect(result.value.limitations).toContainEqual(
+      expect.stringContaining(
+        "split the file into 2 contiguous mappings; 0x8000000-0x8000001 is mapped read-only",
+      ),
+    );
+  });
+
+  it("reports a mismatch when the committed read-only piece stayed writable", () => {
+    const { snapshot, target, observation } = split();
+    const [first, second] = observation.mappings;
+    if (first === undefined || second === undefined) throw new Error("split");
+    const result = attestGhidraRawBinaryLoadImage(
+      snapshot,
+      target,
+      { ...observation, mappings: [{ ...first, writable: true }, second] },
+      ["0x8000000-0x8000001"],
+    );
+    if (!result.ok) throw new Error(result.error);
+    expect(result.value.status).toBe("mismatch");
+    expect(
+      result.value.checks.filter((check) => !check.matched).map((c) => c.name),
+    ).toEqual(["mapping[0].writable"]);
+  });
+
+  it("reports a mismatch when Ghidra kept one unsplit block", () => {
+    const { snapshot, target } = split();
+    const plain = fixtureRawBinaryLoadImage();
+    const result = attestGhidraRawBinaryLoadImage(
+      snapshot,
+      target,
+      plain.observation,
+      ["0x8000000-0x8000001"],
+    );
+    if (!result.ok) throw new Error(result.error);
+    expect(result.value.status).toBe("mismatch");
+  });
+
+  it("requires one snapshot digest per piece", () => {
+    const { target, observation } = split();
+    const plain = fixtureRawBinaryLoadImage();
+    expect(
+      attestGhidraRawBinaryLoadImage(plain.snapshot, target, observation, [
+        "0x8000000-0x8000001",
+      ]),
+    ).toEqual({
+      ok: false,
+      error:
+        "Ghidra raw-binary read-only verification requires one snapshot digest per mapped piece",
+    });
+  });
+});

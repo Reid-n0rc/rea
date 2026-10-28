@@ -28,7 +28,8 @@ import { createVerifierRun, completeVerifierRun } from "./lib/verifier-run.mjs";
 // Verifies the raw-binary firmware lanes armv8m (ARM:LE:32:v8-m, Thumb),
 // xtensa (stock Xtensa:LE:32:default) and xtensa-hifi4 (the caller-installed
 // Xtensa:LE:32:rt600hifi4 language) against real Ghidra. Usage:
-//   node scripts/verify-real-ghidra-firmware-lanes.mjs [armv8m|xtensa|xtensa-hifi4 ...]
+//   node scripts/verify-real-ghidra-firmware-lanes.mjs [armv8m|xtensa|xtensa-hifi4|armv8m-readonly ...]
+// armv8m-readonly checks REA_GHIDRA_RAW_READONLY_RANGES (split, non-writable pieces, folded loads).
 // A lane whose language is not in the installation catalog prints a skipped:
 // line; refusal of an absent language is covered by source tests.
 if (!["linux", "darwin"].includes(process.platform))
@@ -89,6 +90,23 @@ const XTENSA = Buffer.concat([
   TAIL,
 ]);
 
+// Read-only ranges (REA_GHIDRA_RAW_READONLY_RANGES), hand-encoded Thumb:
+//   +0x00 word table (first word 0x11223344) and marker   read-only
+//   +0x20 0148      ldr  r0, [pc, #4]  (literal +0x28)   entry
+//   +0x22 0068      ldr  r0, [r0]
+//   +0x24 7047      bx   lr
+//   +0x26 00bf      nop
+//   +0x28 00000008  .word 0x08000000 (the table)          read-only
+//   +0x2c "TAIL" efbeadde
+// The decompiler folds both loads to the table's first word only when the
+// literal and the table are not writable.
+const READONLY_THUMB = Buffer.concat([
+  WORDS,
+  marker("REA-V8M-RO"),
+  Buffer.from("01480068704700bf00000008", "hex"),
+  TAIL,
+]);
+
 const LANES = {
   armv8m: {
     language: "ARM:LE:32:v8-m",
@@ -124,6 +142,18 @@ const LANES = {
     limitation:
       /Xtensa:LE:32:rt600hifi4 comes from the community Xtensa RT600 HiFi4 \(generated\) processor module [^]*it is not shipped with Ghidra/u,
   },
+};
+LANES["armv8m-readonly"] = {
+  architecture: "armv8m",
+  language: "ARM:LE:32:v8-m",
+  bytes: READONLY_THUMB,
+  base: 0x08000000n,
+  entryOffset: 0x20,
+  tailOffset: 0x2c,
+  readonlyRanges: "0x8000000-0x800001f,0x8000028-0x800002b",
+  // read-only pieces, then writable pieces, in address order
+  pieces: [true, false, true, false],
+  folded: /return\s+0x11223344\s*;/iu,
 };
 for (const lane of Object.values(LANES))
   assert.deepEqual(lane.bytes.subarray(lane.tailOffset), TAIL);
@@ -167,7 +197,11 @@ for (const name of laneNames) {
     );
     continue;
   }
-  reports.push(await verifyLane(name, lane));
+  reports.push(
+    await (lane.readonlyRanges === undefined
+      ? verifyLane(name, lane)
+      : verifyReadonlyLane(name, lane)),
+  );
 }
 process.stdout.write(JSON.stringify({ ok: true, lanes: reports }) + "\n");
 
@@ -180,38 +214,8 @@ async function verifyLane(architecture, lane) {
   const entry = at(lane.entryOffset);
   const leaf = at(lane.leafOffset);
   const { workspace, runtime, path } = await makeWorkspace(architecture, bytes);
-  const env = {
-    ...process.env,
-    TMPDIR: runtime,
-    TMP: runtime,
-    TEMP: runtime,
-    REA_LOG_LEVEL: "silent",
-    REA_ANALYSIS_PROVIDER: "ghidra",
-    REA_PROCESS_RUN_ID: run.run_id,
-  };
-  const transport = new StdioClientTransport({
-    command: process.execPath,
-    args: [entrypoint, "mcp"],
-    env,
-    stderr: "pipe",
-  });
-  const client = new Client({
-    name: `rea-real-${architecture}-proof`,
-    version: "1",
-  });
-  let stderr = "";
-  transport.stderr?.on("data", (chunk) => {
-    stderr = (stderr + chunk.toString()).slice(-65536);
-  });
-  const call = async (name, args = {}) => {
-    const result = await client.callTool(
-      { name, arguments: args },
-      { timeout: 240000 },
-    );
-    if (["open_binary", "binary_session", "close_binary"].includes(name))
-      return requireMcpOperationResult(result, name);
-    return requireMcpOutput(result, name);
-  };
+  const env = laneEnvironment(runtime, run);
+  const { client, transport, call, stderr } = mcpLaneClient(architecture, env);
   const evidence = evidenceChecker(sha256, architecture);
   let report;
   try {
@@ -249,7 +253,7 @@ async function verifyLane(architecture, lane) {
       source_unchanged: true,
     };
   } catch (cause) {
-    if (stderr) process.stderr.write(stderr);
+    if (stderr()) process.stderr.write(stderr());
     throw cause;
   } finally {
     try {
@@ -267,6 +271,145 @@ async function verifyLane(architecture, lane) {
   assert.equal(verifierRun.process_lineage.status, "verified");
   await rm(workspace, { recursive: true, force: true });
   return { verifier_run: verifierRun.process_lineage.status, ...report };
+}
+
+/**
+ * Opens the read-only fixture through MCP with REA_GHIDRA_RAW_READONLY_RANGES,
+ * checks the verified split load image and the folded pseudocode, and checks
+ * through the CLI that the same import without the ranges does not fold.
+ */
+async function verifyReadonlyLane(name, lane) {
+  const { bytes, architecture } = lane;
+  const run = createVerifierRun();
+  const sha256 = createHash("sha256").update(bytes).digest("hex");
+  const at = (offset) => `0x${(lane.base + BigInt(offset)).toString(16)}`;
+  const base = at(0);
+  const entry = at(lane.entryOffset);
+  const { workspace, runtime, path } = await makeWorkspace(name, bytes);
+  const plainEnv = laneEnvironment(runtime, run);
+  delete plainEnv.REA_GHIDRA_RAW_READONLY_RANGES;
+  const env = {
+    ...plainEnv,
+    REA_GHIDRA_RAW_READONLY_RANGES: lane.readonlyRanges,
+  };
+  const evidence = evidenceChecker(sha256, architecture);
+  const { client, transport, call, stderr } = mcpLaneClient(name, env);
+  let report;
+  try {
+    await client.connect(transport);
+    await call("open_binary", {
+      path,
+      format: "raw-binary",
+      architecture,
+      base_address: base,
+      entry_point: entry,
+      provider_id: "ghidra",
+    });
+    const image = evidence(await call("inspect_native_load_image"));
+    const loaded = image.normalized_result;
+    assert.equal(loaded.status, "verified", JSON.stringify(loaded));
+    assert.deepEqual(
+      image.analysis_profile.parameters.readonly_ranges,
+      lane.readonlyRanges.split(","),
+    );
+    const mappings = loaded.observations.mappings.filter(
+      (mapping) => mapping.source_file_index !== null,
+    );
+    assert.deepEqual(
+      mappings.map((mapping) => !mapping.writable),
+      lane.pieces,
+    );
+    assert.ok(
+      loaded.limitations.some((text) =>
+        text.includes("REA_GHIDRA_RAW_READONLY_RANGES split the file"),
+      ),
+    );
+    const pseudo = evidence(
+      await call("procedure_pseudo_code", { procedure: entry }),
+    );
+    assert.match(pseudo.normalized_result, lane.folded);
+    await call("close_binary");
+
+    const decompileEntry = (environment) =>
+      cliDecompile(environment, lane, {
+        path,
+        architecture,
+        base,
+        entry,
+        fileOffset: lane.entryOffset,
+      });
+    const ranged = evidence(JSON.parse(await decompileEntry(env)));
+    assert.equal(ranged.normalized_result, pseudo.normalized_result);
+    const plain = evidence(JSON.parse(await decompileEntry(plainEnv)));
+    assert.doesNotMatch(plain.normalized_result, lane.folded);
+    assert.deepEqual(await readFile(path), bytes);
+    report = {
+      lane: `ghidra-${name}`,
+      mocked: false,
+      host: process.platform,
+      provider: image.provider,
+      target: { sha256, bytes: bytes.length, architecture, base, entry },
+      readonly_ranges: lane.readonlyRanges,
+      load_image: loaded.status,
+      file_mappings: mappings.length,
+      folded_with_ranges: true,
+      folded_without_ranges: false,
+      cli_mcp_decompilation_parity: true,
+      source_unchanged: true,
+    };
+  } catch (cause) {
+    if (stderr()) process.stderr.write(stderr());
+    throw cause;
+  } finally {
+    try {
+      await client.close();
+    } finally {
+      await transport.close();
+    }
+  }
+  assert.deepEqual(await readdir(runtime), []);
+  const verifierRun = await completeVerifierRun(run);
+  assert.equal(verifierRun.process_lineage.status, "verified");
+  await rm(workspace, { recursive: true, force: true });
+  return { verifier_run: verifierRun.process_lineage.status, ...report };
+}
+
+/** Server and CLI environment confined to the lane's runtime directory. */
+function laneEnvironment(runtime, run) {
+  return {
+    ...process.env,
+    TMPDIR: runtime,
+    TMP: runtime,
+    TEMP: runtime,
+    REA_LOG_LEVEL: "silent",
+    REA_ANALYSIS_PROVIDER: "ghidra",
+    REA_PROCESS_RUN_ID: run.run_id,
+  };
+}
+
+/** A stdio MCP client for one lane; `call` unwraps operation and output results. */
+function mcpLaneClient(name, env) {
+  const transport = new StdioClientTransport({
+    command: process.execPath,
+    args: [entrypoint, "mcp"],
+    env,
+    stderr: "pipe",
+  });
+  const client = new Client({ name: `rea-real-${name}-proof`, version: "1" });
+  let stderr = "";
+  transport.stderr?.on("data", (chunk) => {
+    stderr = (stderr + chunk.toString()).slice(-65536);
+  });
+  const call = async (tool, args = {}) => {
+    const result = await client.callTool(
+      { name: tool, arguments: args },
+      { timeout: 240000 },
+    );
+    if (["open_binary", "binary_session", "close_binary"].includes(tool))
+      return requireMcpOperationResult(result, tool);
+    return requireMcpOutput(result, tool);
+  };
+  return { client, transport, call, stderr: () => stderr };
 }
 
 /** Parses Evidence and checks it names the fixture as a raw-binary target. */
@@ -368,13 +511,14 @@ async function checkMcpLane(call, evidence, lane, target) {
 /** Decompiles the leaf through the compiled CLI and returns its stdout. */
 async function cliDecompile(env, lane, target) {
   const { path, architecture, base, entry } = target;
+  const fileOffset = target.fileOffset ?? lane.leafOffset;
   const { stdout } = await exec(
     process.execPath,
     [
       entrypoint,
       "decompile",
       path,
-      `--file-offset=0x${lane.leafOffset.toString(16)}`,
+      `--file-offset=0x${fileOffset.toString(16)}`,
       "--target-format",
       "raw-binary",
       "--architecture",

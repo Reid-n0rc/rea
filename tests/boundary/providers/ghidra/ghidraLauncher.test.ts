@@ -158,9 +158,38 @@ describe("Ghidra raw-binary loader", () => {
     // File offset 0 is mapped at the base; the entry is seeded separately.
     expect(arguments_[prepare + 3]).toBe("0x8000000");
     expect(arguments_[prepare + 4]).toBe("0x8000100");
+    // Without read-only ranges the prepare script keeps three arguments.
+    expect(arguments_[prepare + 5]?.startsWith("0x")).not.toBe(true);
     expect(prepare).toBeLessThan(arguments_.indexOf("-postScript"));
     expect(arguments_).toContain("-readOnly");
     expect(arguments_).toContain("-deleteProject");
+  });
+
+  it("passes committed read-only ranges to the prepare script as one argument", () => {
+    const arguments_ = ghidraHeadlessArguments({
+      projectRoot: "/tmp/project",
+      targetPath: "/tmp/dsp.bin",
+      bridgeScriptPath: "/package/bridge/ReaGhidraBridge.java",
+      descriptorPath: "/tmp/session.json",
+      ghidraLogPath: "/tmp/ghidra.log",
+      scriptLogPath: "/tmp/script.log",
+      rawBinary: {
+        languageId: "Xtensa:LE:32:default",
+        compilerSpecId: "default",
+        baseAddr: "0x200000",
+        entryAddr: "0x21c360",
+        readonlyRanges: ["0x200000-0x206fff", "0x208000-0x2080ff"],
+      },
+    });
+    const prepare = arguments_.indexOf("-preScript");
+    expect(arguments_.slice(prepare + 1, prepare + 6)).toEqual([
+      join("/package/bridge", "ReaGhidraPrepareRaw.java"),
+      "Xtensa:LE:32:default",
+      "0x200000",
+      "0x21c360",
+      "0x200000-0x206fff,0x208000-0x2080ff",
+    ]);
+    expect(prepare).toBeLessThan(arguments_.indexOf("-postScript"));
   });
 });
 

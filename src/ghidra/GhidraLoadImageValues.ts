@@ -11,6 +11,10 @@ import type { BinaryTarget } from "../domain/binaryTargetTypes.js";
 import { validateDosComLength } from "../domain/dosCom.js";
 import { err, ok, type Result } from "../domain/result.js";
 import {
+  ghidraRawReadonlyPieces,
+  parseGhidraRawReadonlyRange,
+} from "../config/ghidraRawReadonlyRanges.js";
+import {
   ghidraRawBinaryLanguage,
   ghidraRawBinaryLanguageLimitations,
 } from "./GhidraRawBinaryLanguage.js";
@@ -373,6 +377,21 @@ export const attestGhidraDosComLoadImage = (
 
 const hexAddress = (value: bigint): string => `0x${value.toString(16)}`;
 
+/** File pieces selected by committed read-only ranges; undefined for a malformed range. */
+const ghidraRawRangePieces = (
+  base: bigint,
+  last: bigint,
+  readonlyRanges: readonly string[] | undefined,
+): ReturnType<typeof ghidraRawReadonlyPieces> | undefined => {
+  const ranges = (readonlyRanges ?? []).map(parseGhidraRawReadonlyRange);
+  if (ranges.some((range) => range === undefined)) return undefined;
+  return ghidraRawReadonlyPieces(
+    base,
+    last,
+    ranges.filter((range) => range !== undefined),
+  );
+};
+
 /** File offset that an observed file-backed mapping assigns to an address, if any. */
 const observedFileOffset = (
   mapping: NativeLoadImageObservation["mappings"][number] | undefined,
@@ -386,11 +405,95 @@ const observedFileOffset = (
   return mapping.file_offset + Number(value - start);
 };
 
-/** Verify a caller-supplied raw-binary mapping against measured Ghidra import facts. */
+type RawMappingObservation = NativeLoadImageObservation["mappings"][number];
+type RawPiece = ReturnType<typeof ghidraRawReadonlyPieces>[number];
+
+/** Attest one file-backed piece of a raw import: placement, bytes and, when split, write permission. */
+const checkRawMapping = (
+  check: ReturnType<typeof createLoadImageChecks>["check"],
+  mapping: RawMappingObservation | undefined,
+  expected: {
+    readonly prefix: string;
+    readonly piece: RawPiece;
+    readonly base: bigint;
+    readonly sha256: string | null;
+    readonly split: boolean;
+    readonly defaultAddressSpace: string | null;
+  },
+): void => {
+  const { prefix, piece, base, sha256, split, defaultAddressSpace } = expected;
+  const fileOffset = Number(piece.start - base);
+  check(`${prefix}.source_file_index`, 0, mapping?.source_file_index ?? null);
+  // Matching bytes alone do not establish the admitted default-space load.
+  check(`${prefix}.initialized`, true, mapping?.initialized ?? null);
+  check(`${prefix}.loaded`, true, mapping?.loaded ?? null);
+  check(`${prefix}.overlay`, false, mapping?.overlay ?? null);
+  check(
+    `${prefix}.address_space`,
+    defaultAddressSpace,
+    mapping?.address_space ?? null,
+  );
+  check(
+    `${prefix}.file_offset`,
+    fileOffset,
+    mapping?.file_offset ?? null,
+    fileOffset,
+    mapping?.start ?? null,
+  );
+  check(
+    `${prefix}.start`,
+    hexAddress(piece.start),
+    mapping?.start ?? null,
+    fileOffset,
+    mapping?.start ?? null,
+  );
+  check(
+    `${prefix}.end`,
+    hexAddress(piece.end),
+    mapping?.end ?? null,
+    fileOffset,
+    mapping?.end ?? null,
+  );
+  check(
+    `${prefix}.length`,
+    Number(piece.end - piece.start + 1n),
+    mapping?.length ?? null,
+    fileOffset,
+    mapping?.start ?? null,
+  );
+  check(
+    `${prefix}.sha256`,
+    sha256,
+    mapping?.sha256 ?? null,
+    fileOffset,
+    mapping?.start ?? null,
+  );
+  if (split)
+    check(
+      `${prefix}.writable`,
+      !piece.readonly,
+      mapping?.writable ?? null,
+      fileOffset,
+      mapping?.start ?? null,
+    );
+};
+
+/**
+ * Verify a caller-supplied raw-binary mapping against measured Ghidra import
+ * facts. With committed read-only ranges, the file must be mapped as the
+ * contiguous pieces those ranges select, each with its own digest
+ * (`snapshot.rangeSha256`, in piece order) and the read-only pieces
+ * non-writable.
+ */
 export const attestGhidraRawBinaryLoadImage = (
-  snapshot: { readonly sha256: string; readonly bytes: number },
+  snapshot: {
+    readonly sha256: string;
+    readonly bytes: number;
+    readonly rangeSha256?: readonly string[];
+  },
   target: Extract<BinaryTarget, { format: "raw-binary" }>,
   observations: NativeLoadImageObservation,
+  readonlyRanges?: readonly string[],
 ): Result<NativeLoadImage, string> => {
   if (snapshot.sha256 !== target.sha256)
     return err(
@@ -401,13 +504,25 @@ export const attestGhidraRawBinaryLoadImage = (
   const baseAddress = target.baseAddress ?? target.entryPoint;
   const base = BigInt(baseAddress);
   const entryFileOffset = Number(BigInt(target.entryPoint) - base);
-  const last = hexAddress(base + BigInt(snapshot.bytes) - 1n);
+  const lastAddress = base + BigInt(snapshot.bytes) - 1n;
+  const pieces = ghidraRawRangePieces(base, lastAddress, readonlyRanges);
+  if (pieces === undefined)
+    return err("Ghidra raw-binary read-only ranges are not canonical ranges");
+  const split = pieces.length > 1 || pieces.some((piece) => piece.readonly);
+  if (split && snapshot.rangeSha256?.length !== pieces.length)
+    return err(
+      "Ghidra raw-binary read-only verification requires one snapshot digest per mapped piece",
+    );
   const { checks, check } = createLoadImageChecks();
   const source = observations.source_files[0];
   const fileMappings = observations.mappings.filter(
     (item) => item.source_file_index !== null,
   );
-  const mapping = fileMappings[0];
+  const entryValue = BigInt(target.entryPoint);
+  const entryMapping = fileMappings.find(
+    (item) =>
+      BigInt(item.start) <= entryValue && entryValue <= BigInt(item.end),
+  );
   check("executable_format", "Raw Binary", observations.executable_format);
   check("language_id", language.languageId, observations.language_id);
   check(
@@ -427,7 +542,7 @@ export const attestGhidraRawBinaryLoadImage = (
   check("original_file_sha256", target.sha256, source?.original_sha256 ?? null);
   check("modified_file_sha256", target.sha256, source?.modified_sha256 ?? null);
   // Language-defined uninitialized zero page/stack blocks are observations, not file bytes.
-  check("mapping_count", 1, fileMappings.length);
+  check("mapping_count", pieces.length, fileMappings.length);
   check(
     "initialized_unbacked_mappings",
     0,
@@ -435,45 +550,15 @@ export const attestGhidraRawBinaryLoadImage = (
       (item) => item.initialized && item.source_file_index === null,
     ).length,
   );
-  check("mapping.source_file_index", 0, mapping?.source_file_index ?? null);
-  // Matching bytes alone do not establish the admitted default-space load.
-  check("mapping.initialized", true, mapping?.initialized ?? null);
-  check("mapping.loaded", true, mapping?.loaded ?? null);
-  check("mapping.overlay", false, mapping?.overlay ?? null);
-  check(
-    "mapping.address_space",
-    observations.default_address_space,
-    mapping?.address_space ?? null,
-  );
-  check(
-    "mapping.file_offset",
-    0,
-    mapping?.file_offset ?? null,
-    0,
-    mapping?.start ?? null,
-  );
-  check(
-    "mapping.start",
-    baseAddress,
-    mapping?.start ?? null,
-    0,
-    mapping?.start ?? null,
-  );
-  check("mapping.end", last, mapping?.end ?? null, 0, mapping?.end ?? null);
-  check(
-    "mapping.length",
-    snapshot.bytes,
-    mapping?.length ?? null,
-    0,
-    mapping?.start ?? null,
-  );
-  check(
-    "mapping.sha256",
-    snapshot.sha256,
-    mapping?.sha256 ?? null,
-    0,
-    mapping?.start ?? null,
-  );
+  for (const [index, piece] of pieces.entries())
+    checkRawMapping(check, fileMappings[index], {
+      prefix: split ? `mapping[${index}]` : "mapping",
+      piece,
+      base,
+      sha256: split ? (snapshot.rangeSha256?.[index] ?? null) : snapshot.sha256,
+      split,
+      defaultAddressSpace: observations.default_address_space,
+    });
   check(
     "entry_point",
     target.entryPoint,
@@ -486,7 +571,7 @@ export const attestGhidraRawBinaryLoadImage = (
     check(
       "entry_point.file_offset",
       entryFileOffset,
-      observedFileOffset(mapping, target.entryPoint),
+      observedFileOffset(entryMapping, target.entryPoint),
       entryFileOffset,
       target.entryPoint,
     );
@@ -515,6 +600,19 @@ export const attestGhidraRawBinaryLoadImage = (
         "Language-defined uninitialized memory, such as 6502 zero page and stack, is preserved as observations but is not attested as file-backed bytes.",
         "Reset vectors, memory-mapped I/O, alternate-endian and Thumb-only variants, and runtime boot behavior are not modeled or verified. No original executable bytes are changed.",
         "Mapping ends are inclusive; a mismatching digest identifies its source range, not the first differing byte.",
+        ...(split
+          ? [
+              `REA_GHIDRA_RAW_READONLY_RANGES split the file into ${String(pieces.length)} contiguous mappings; ${pieces
+                .filter((piece) => piece.readonly)
+                .map(
+                  (piece) =>
+                    `${hexAddress(piece.start)}-${hexAddress(piece.end)}`,
+                )
+                .join(
+                  ", ",
+                )} ${pieces.filter((piece) => piece.readonly).length === 1 ? "is" : "are"} mapped read-only, so the decompiler treats values read from there as constants. The read-only permission is the caller's assertion about the firmware, not a fact recovered from the image.`,
+            ]
+          : []),
         ...ghidraRawBinaryLanguageLimitations(language),
       ],
     }),

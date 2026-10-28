@@ -25,6 +25,8 @@ import {
 import {
   ghidraPinnedLanguage,
   ghidraProfileDisabledAnalyzers,
+  ghidraProfileRawReadonlyRanges,
+  sameGhidraRawReadonlyRanges,
   ghidraProfileLanguageOverride,
   sameGhidraDisabledAnalyzers,
   sameGhidraLanguageOverride,
@@ -326,6 +328,25 @@ export const createGhidraProviderClient = (input: {
         },
       }),
     );
+  const rawReadonlyRanges =
+    target.format === "raw-binary"
+      ? ghidraProfileRawReadonlyRanges(committedProfile.parameters)
+      : undefined;
+  if (
+    target.format === "raw-binary" &&
+    !sameGhidraRawReadonlyRanges(
+      rawReadonlyRanges,
+      config.ghidraRawReadonlyRanges,
+    )
+  )
+    return err(
+      new ProviderAdapterError("ghidra", "open_binary", {
+        diagnostics: {
+          reason:
+            "The committed analysis profile and REA_GHIDRA_RAW_READONLY_RANGES differ; reopen the target to resolve a new profile.",
+        },
+      }),
+    );
 
   const invalidProfile = validateGhidraExtensionProfile(
     extensions,
@@ -454,6 +475,9 @@ export const createGhidraProviderClient = (input: {
               compilerSpecId: rawLanguage.compilerSpecId,
               baseAddr: target.baseAddress ?? target.entryPoint,
               entryAddr: target.entryPoint,
+              ...(rawReadonlyRanges === undefined
+                ? {}
+                : { readonlyRanges: rawReadonlyRanges }),
             },
           }),
       ...(target.format === "gamecube-dol"
@@ -711,6 +735,7 @@ export const createGhidraProviderClient = (input: {
       measured: observed,
       client,
       languageOverride: importLanguage,
+      ...(rawReadonlyRanges === undefined ? {} : { rawReadonlyRanges }),
       mapSessionError: (failure) =>
         projectSessionError(operation, failure, config, lostProviderHealth()),
       nativeAotResult: derived,

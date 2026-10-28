@@ -25,6 +25,8 @@ export interface AppConfig {
   readonly ghidraDecompileTimeoutSeconds?: number | undefined;
   readonly ghidraLanguageOverride?: GhidraLanguageOverride;
   readonly ghidraDisabledAnalyzers?: readonly string[];
+  /** Canonical `0xstart-0xend` ranges a raw-binary import maps read-only. */
+  readonly ghidraRawReadonlyRanges?: readonly string[];
   readonly ghidraSeedFile?: string;
   readonly ghidraExistingProject?: GhidraProjectSelection;
   readonly ghidraNativeAotJar?: string;

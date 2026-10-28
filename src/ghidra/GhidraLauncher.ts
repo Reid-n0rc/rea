@@ -235,6 +235,8 @@ export interface GhidraHeadlessLauncherOptions {
     readonly baseAddr: string;
     /** Entry seeded by the prepare script; equals baseAddr unless a base was selected. */
     readonly entryAddr: string;
+    /** Canonical inclusive `0xstart-0xend` ranges the prepare script maps read-only. */
+    readonly readonlyRanges?: readonly string[];
   };
   /** GameCube DOL import: committed language and the canonical section table text. */
   readonly gamecubeDol?: {
@@ -778,6 +780,8 @@ export interface GhidraHeadlessArgumentOptions {
     readonly baseAddr: string;
     /** Entry seeded by the prepare script; equals baseAddr unless a base was selected. */
     readonly entryAddr: string;
+    /** Canonical inclusive `0xstart-0xend` ranges the prepare script maps read-only. */
+    readonly readonlyRanges?: readonly string[];
   };
   readonly gamecubeDol?: {
     readonly languageId: string;
@@ -1017,6 +1021,11 @@ export const ghidraHeadlessArguments = (
           rawBinary.languageId,
           rawBinary.baseAddr,
           rawBinary.entryAddr,
+          // Ranges start with 0x, so headless never reads them as options.
+          ...(rawBinary.readonlyRanges === undefined ||
+          rawBinary.readonlyRanges.length === 0
+            ? []
+            : [rawBinary.readonlyRanges.join(",")]),
         ]),
     ...(gamecubeDol === undefined
       ? []

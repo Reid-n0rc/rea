@@ -13,6 +13,7 @@ import {
   ghidraLanguageIdSchema,
 } from "./ghidraLanguageOverride.js";
 import { ghidraDisabledAnalyzersSchema } from "./ghidraDisabledAnalyzers.js";
+import { ghidraRawReadonlyRangesSchema } from "./ghidraRawReadonlyRanges.js";
 import {
   DEFAULT_SWIFTC_COMPILE_TIMEOUT_MS,
   ghidraDecompileTimeoutSchema,
@@ -107,6 +108,7 @@ const environmentSchema = z.object({
   REA_GHIDRA_LANGUAGE_ID: ghidraLanguageIdSchema.optional(),
   REA_GHIDRA_COMPILER_SPEC_ID: ghidraCompilerSpecIdSchema.optional(),
   REA_GHIDRA_DISABLED_ANALYZERS: ghidraDisabledAnalyzersSchema.optional(),
+  REA_GHIDRA_RAW_READONLY_RANGES: ghidraRawReadonlyRangesSchema.optional(),
   REA_GHIDRA_SEED_FILE: z
     .string()
     .min(1)
@@ -235,6 +237,7 @@ export const parseEnvironment = (
           "REA_GHIDRA_COMPILER_SPEC_ID",
           "REA_GHIDRA_SEED_FILE",
           "REA_GHIDRA_DISABLED_ANALYZERS",
+          "REA_GHIDRA_RAW_READONLY_RANGES",
           "REA_GHIDRA_NATIVEAOT_JAR",
         ].filter((setting) => environment[setting] !== undefined);
   if (incompatible.length > 0)

@@ -1411,6 +1411,16 @@ Each line is `address<TAB>kind[<TAB>name]`, where kind is `function`, `code` or 
 
 Label seeds can name mapped uninitialized storage such as `.bss`; function and code seeds require initialized bytes.
 
+To map parts of a headerless (`raw-binary`) image read-only, so the decompiler
+folds constants and switch tables read from them:
+
+```bash
+export REA_GHIDRA_RAW_READONLY_RANGES=0x200000-0x206fff,0x210000-0x2100ff
+```
+
+Ranges are inclusive load addresses inside the mapped image; they are
+committed to the analysis profile. See [raw binaries](raw-binary.md#read-only-ranges).
+
 To skip a named Ghidra auto-analyzer (for example, when default auto-analysis
 stalls in one analyzer on a Swift/Objective-C arm64 Mach-O):
 
