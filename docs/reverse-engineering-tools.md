@@ -89,6 +89,20 @@ rea debug-with-rizin --inferior-tty /dev/pts/7 ./program dr
 rea execute-rizin-command ./program iI
 ```
 
+For a headerless image, optional `arch`, `bits` and `base_address` (CLI:
+`--arch`, `--bits`, `--base-address`) select the decoder and load address and
+are passed as `-a`, `-b` and `-m`, so commands and output use load addresses
+instead of file offsets. `arch` is a Rizin `asm.arch` plugin name (`rz-asm -L`),
+`bits` is 8, 16, 32 or 64, and `base_address` is `0x` hex. They are recorded in
+the Evidence parameters only when given. Without them the file is opened as
+Rizin detects it, mapped at 0 for an unrecognized format. This one-shot command
+is the only Rizin lane for raw images; deep analysis (`open_binary` with
+`format: "raw-binary"`) is served by Ghidra.
+
+```sh
+rea execute-rizin-command ./main.bin 'pd 3 @ 0xfffa347c' --arch rx --bits 32 --base-address 0xfff80000
+```
+
 Captured stdout and stderr are retained up to a 16 MiB combined limit; `output_truncated` marks output beyond that limit. One-shot commands use the `command_timeout_ms` budget described above. That 16 MiB cap has no runtime override.
 
 ## Cutter bridge

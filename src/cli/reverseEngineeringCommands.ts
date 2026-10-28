@@ -248,6 +248,20 @@ export const registerReverseEngineeringCommands = (
     }),
     options: z.object({
       commandTimeoutMs: reverseCommandTimeoutSchema,
+      arch: z
+        .string()
+        .optional()
+        .describe(
+          "Rizin asm.arch for a headerless image (rizin -a), e.g. rx, arm, xtensa",
+        ),
+      bits: z.coerce
+        .number()
+        .optional()
+        .describe("asm.bits (rizin -b): 8, 16, 32 or 64; Thumb is arm with 16"),
+      baseAddress: z
+        .string()
+        .optional()
+        .describe("Address (0xhex) where file offset 0 is mapped (rizin -m)"),
     }),
     run: ({ args, options }) =>
       withCommandCancellation((signal) =>
@@ -256,6 +270,11 @@ export const registerReverseEngineeringCommands = (
             service.executeRizinCommand(
               {
                 ...args,
+                ...(options.arch === undefined ? {} : { arch: options.arch }),
+                ...(options.bits === undefined ? {} : { bits: options.bits }),
+                ...(options.baseAddress === undefined
+                  ? {}
+                  : { base_address: options.baseAddress }),
                 ...(options.commandTimeoutMs === undefined
                   ? {}
                   : { command_timeout_ms: options.commandTimeoutMs }),

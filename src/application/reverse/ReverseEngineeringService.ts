@@ -271,11 +271,17 @@ export class ReverseEngineeringService {
   ): Promise<Result<Evidence, AnalysisError>> {
     const { command_timeout_ms: commandTimeoutMs, ...input } = request;
     const command = this.#commands.rizin(input);
+    // Optional decoder selections are recorded only when the caller gave them.
+    const parameters: Record<string, JsonValue> = {};
+    for (const [key, value] of Object.entries(
+      commandTimeoutMs === undefined ? input : request,
+    ))
+      if (value !== undefined) parameters[key] = value;
     return this.#observe(
       "execute_rizin_command",
       command,
       input.path,
-      commandTimeoutMs === undefined ? input : request,
+      parameters,
       options.signal,
       commandTimeoutMs ?? DEFAULT_REVERSE_COMMAND_TIMEOUT_MS,
     );

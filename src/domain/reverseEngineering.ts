@@ -83,6 +83,31 @@ export const rizinInputSchema = z
         (value) => !/[\r\n\u0000]/u.test(value),
         "A single command line is required",
       ),
+    arch: z
+      .string()
+      .regex(/^[a-z0-9][a-z0-9._-]{0,31}$/u, {
+        message:
+          "arch must be a Rizin asm.arch plugin name such as rx, arm or xtensa",
+      })
+      .optional()
+      .describe(
+        "Optional Rizin asm.arch plugin for a headerless image (rizin -a), e.g. rx, arm, xtensa.",
+      ),
+    bits: z
+      .union([z.literal(8), z.literal(16), z.literal(32), z.literal(64)])
+      .optional()
+      .describe(
+        "Optional asm.bits (rizin -b): 8, 16, 32 or 64. Thumb is arm with 16.",
+      ),
+    base_address: z
+      .string()
+      .regex(/^0x[0-9A-Fa-f]{1,16}$/u, {
+        message: "base_address must be a hexadecimal address of the form 0x…",
+      })
+      .optional()
+      .describe(
+        "Optional address where file offset 0 is mapped (rizin -m), so commands use load addresses.",
+      ),
     ...commandTimeoutMsField,
   })
   .strict();
