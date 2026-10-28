@@ -1496,7 +1496,9 @@ settings above instead of adding a second `-Xmx` through an injection variable.
 
 The Linux/macOS launch sets `-XX:ParallelGCThreads=2` and
 `-XX:CICompilerCount=2`; the supported Windows headless script also sets these
-counts. These constrain particular JVM thread pools, not all analysis threads
+counts. On Linux and macOS, `GHIDRA_HEADLESS_GC_THREADS` (an integer from 1 to 1024) replaces the GC thread count, so a host with many cores and a large
+`GHIDRA_HEADLESS_MAXMEM` heap collects it faster; an invalid value fails the
+launch. These constrain particular JVM thread pools, not all analysis threads
 or CPU usage. REA does not pass Ghidra's `-max-cpu` option or expose a general
 Ghidra CPU limit. When needed, apply host CPU affinity and scheduling controls
 to the REA process and verify the resulting JVM's affinity. Select CPUs allowed

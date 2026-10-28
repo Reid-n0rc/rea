@@ -15,6 +15,27 @@ import {
   type ExecFileOutputFailure,
 } from "../process/ExecFileOutput.js";
 
+/** Default parallel garbage-collector threads for the analysis JVM. */
+export const DEFAULT_GHIDRA_PARALLEL_GC_THREADS = 2;
+
+/**
+ * Parallel GC threads for the analysis JVM: GHIDRA_HEADLESS_GC_THREADS when set
+ * to an integer from 1 to 1024, otherwise the default of 2. Set beside
+ * GHIDRA_HEADLESS_MAXMEM, so hosts with many cores and a large heap can
+ * collect it faster. An invalid value fails the launch rather than being
+ * silently replaced.
+ */
+export const ghidraParallelGcThreads = (value: string | undefined): number => {
+  if (value === undefined || value === "")
+    return DEFAULT_GHIDRA_PARALLEL_GC_THREADS;
+  const threads = /^[1-9][0-9]{0,3}$/u.test(value) ? Number(value) : NaN;
+  if (!(threads >= 1 && threads <= 1024))
+    throw new Error(
+      `GHIDRA_HEADLESS_GC_THREADS must be an integer from 1 to 1024, got ${JSON.stringify(value)}`,
+    );
+  return threads;
+};
+
 export const GHIDRA_LAUNCH_SUPPORT_CAPTURE_BYTES = 64 * 1024;
 type LaunchSupportPhase = "-envvars" | "-vmargs" | "JDK_JAVA_OPTIONS";
 type LaunchSupportOutcome = Omit<
@@ -138,6 +159,9 @@ export const ghidraJavaLaunch = async (options: {
   }
   const configuredMaxHeap =
     environment.GHIDRA_HEADLESS_MAXMEM || environment.GHIDRA_MAXMEM || "2G";
+  const parallelGcThreads = ghidraParallelGcThreads(
+    environment.GHIDRA_HEADLESS_GC_THREADS,
+  );
   // The merged environment becomes the analysis JVM's environment, and the
   // JVM applies these options variables automatically. An injected
   // -Dos.arch/-Dos.name there selects an unvalidated native directory without
@@ -188,7 +212,7 @@ export const ghidraJavaLaunch = async (options: {
       ...vmArguments,
       ...(options.platform === "darwin" ? ["-Xdock:name=Ghidra-Headless"] : []),
       `-Xmx${configuredMaxHeap}`,
-      "-XX:ParallelGCThreads=2",
+      `-XX:ParallelGCThreads=${parallelGcThreads}`,
       "-XX:CICompilerCount=2",
       "-Djava.awt.headless=true",
       ...isolatedProperties,

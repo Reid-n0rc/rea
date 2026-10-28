@@ -16,8 +16,10 @@ import { describe, expect, it, onTestFinished, vi } from "vitest";
 import { ArtifactResourceScope } from "../../../../src/artifacts/ArtifactResourceScope.js";
 import { ArtifactFileCleanupFailure } from "../../../../src/artifacts/ArtifactFileOperation.js";
 import {
+  DEFAULT_GHIDRA_PARALLEL_GC_THREADS,
   GhidraLaunchSupportError,
   ghidraJavaLaunch,
+  ghidraParallelGcThreads,
 } from "../../../../src/ghidra/GhidraJavaLaunch.js";
 import {
   inspectGhidraInstallation,
@@ -374,6 +376,7 @@ describe.skipIf(process.platform === "win32")(
         if (!launched.ok) throw launched.error;
         expect(analysisArguments[0]).toContain("-Dfile.encoding=UTF8");
         expect(analysisArguments[0]).toContain("-Xmx1G");
+        expect(analysisArguments[0]).toContain("-XX:ParallelGCThreads=2");
         expect(
           analysisArguments[0]?.some(
             (argument) =>
@@ -1016,4 +1019,27 @@ it("does not infer helper cancellation from an arbitrary failure's display code"
     stdout: "out",
     stderr: "err",
   });
+});
+
+describe("Ghidra analysis JVM parallel GC threads", () => {
+  it("keeps the default of 2 when GHIDRA_HEADLESS_GC_THREADS is unset or empty", () => {
+    expect(DEFAULT_GHIDRA_PARALLEL_GC_THREADS).toBe(2);
+    expect(ghidraParallelGcThreads(undefined)).toBe(2);
+    expect(ghidraParallelGcThreads("")).toBe(2);
+  });
+  it.each([
+    ["1", 1],
+    ["20", 20],
+    ["1024", 1024],
+  ])("accepts GHIDRA_HEADLESS_GC_THREADS=%s", (value, threads) => {
+    expect(ghidraParallelGcThreads(value)).toBe(threads);
+  });
+  it.each(["0", "1025", "-2", "2.5", "08", " 4", "four", "99999"])(
+    "rejects GHIDRA_HEADLESS_GC_THREADS=%s",
+    (value) => {
+      expect(() => ghidraParallelGcThreads(value)).toThrow(
+        "GHIDRA_HEADLESS_GC_THREADS must be an integer from 1 to 1024",
+      );
+    },
+  );
 });
