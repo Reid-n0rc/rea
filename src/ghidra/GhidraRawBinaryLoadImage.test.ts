@@ -574,6 +574,7 @@ describe("raw-binary load images with read-only ranges", () => {
     );
     if (!result.ok) throw new Error(result.error);
     expect(result.value.status).toBe("verified");
+    if (result.value.status === "unsupported") throw new Error("unsupported");
     expect(result.value.checks).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ name: "mapping_count", expected: 2 }),
@@ -608,6 +609,7 @@ describe("raw-binary load images with read-only ranges", () => {
     );
     if (!result.ok) throw new Error(result.error);
     expect(result.value.status).toBe("mismatch");
+    if (result.value.status === "unsupported") throw new Error("unsupported");
     expect(
       result.value.checks.filter((check) => !check.matched).map((c) => c.name),
     ).toEqual(["mapping[0].writable"]);
